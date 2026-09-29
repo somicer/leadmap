@@ -10,7 +10,7 @@ NAME="$(basename "$APP_DIR")"
 tar czf "$OUT" -C "$(dirname "$APP_DIR")" \
   --exclude="$NAME/.venv" --exclude="$NAME/data" --exclude="$NAME/debug" \
   --exclude="$NAME/logs" --exclude="$NAME/exports" --exclude="$NAME/config.yaml" \
-  --exclude="$NAME/doc.txt" --exclude='__pycache__' --exclude='.pytest_cache' \
+  --exclude="$NAME/doc.txt" --exclude="$NAME/.git" --exclude="$NAME/.gitignore" --exclude="__pycache__" --exclude=".pytest_cache" \
   --transform "s|^$NAME|leadmap|" \
   "$NAME"
 
