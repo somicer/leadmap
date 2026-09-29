@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>پنل مرکزی leadmap</title>
+<style>
+:root {
+  --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+  --accent: #2563eb; --ok: #15803d; --ok-bg: #dcfce7; --warn: #b45309; --warn-bg: #fef3c7;
+  --bad: #b91c1c; --bad-bg: #fee2e2; --bar: #e5e9f0; --code: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218; --card: #171b23; --text: #e6e9ef; --muted: #9098a8; --line: #272d38;
+    --accent: #60a5fa; --ok: #4ade80; --ok-bg: #11301d; --warn: #fbbf24; --warn-bg: #3a2c0c;
+    --bad: #f87171; --bad-bg: #3b1515; --bar: #262c37; --code: #11151c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.6 Vazirmatn, Tahoma, "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+.muted { color: var(--muted); font-size: 13px; }
+.pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.ok { background: var(--ok-bg); color: var(--ok); }
+.warn { background: var(--warn-bg); color: var(--warn); }
+.bad { background: var(--bad-bg); color: var(--bad); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.kpi .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .l { color: var(--muted); font-size: 13px; }
+.bar { height: 10px; background: var(--bar); border-radius: 99px; overflow: hidden; margin: 8px 0 4px; }
+.bar > div { height: 100%; background: var(--accent); border-radius: 99px; transition: width .4s; }
+.alert { border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; font-weight: 600; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+td.num { font-variant-numeric: tabular-nums; }
+.err { color: var(--bad); white-space: normal; max-width: 380px; font-size: 13px; }
+pre { background: var(--code); border-radius: 8px; padding: 10px; margin: 0; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  direction: ltr; text-align: left; overflow-x: auto; max-height: 420px; overflow-y: auto; white-space: pre; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.card, .kpi { min-width: 0; }
+.kpi .s { font-size: 14px; color: var(--muted); font-weight: 600; }
+@media (max-width: 760px) { .two { grid-template-columns: minmax(0, 1fr); } }
+a { color: var(--accent); }
+button { font: inherit; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+button:disabled { opacity: .6; cursor: default; }
+ul.files { list-style: none; margin: 0; padding: 0; }
+ul.files li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+</style>
+<style>
+textarea, input[type=text] { font: inherit; width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+textarea { min-height: 84px; resize: vertical; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.row input[type=text] { flex: 1; min-width: 160px; width: auto; }
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 2px 9px; font-size: 13px; }
+button.danger { background: transparent; color: var(--bad); border: 1px solid var(--line); padding: 2px 9px; font-size: 13px; }
+.act { display: flex; gap: 4px; flex-wrap: wrap; }
+.mini { height: 6px; min-width: 90px; background: var(--bar); border-radius: 99px; overflow: hidden; margin-top: 3px; }
+.mini > div { height: 100%; background: var(--accent); }
+.token { direction: ltr; text-align: left; white-space: pre-wrap; word-break: break-all; }
+nav a { margin-inline-start: 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>پنل مرکزی — تقسیم شهرها بین سرورها</h1>
+      <div class="muted">هر سرور یک شهر از صف برمی‌دارد، تمامش می‌کند و بعدی را برمی‌دارد · به‌روزرسانی هر ۲۰ ثانیه</div>
+    </div>
+    <nav><a href="./">داشبورد همین سرور</a></nav>
+  </header>
+
+  <div id="alert"></div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">سرورهای آنلاین</div><div class="v" id="k-w">…</div></div>
+    <div class="kpi"><div class="l">شهرهای در حال کار</div><div class="v" id="k-active">…</div></div>
+    <div class="kpi"><div class="l">در صف</div><div class="v" id="k-queued">…</div></div>
+    <div class="kpi"><div class="l">تمام‌شده</div><div class="v" id="k-done">…</div></div>
+    <div class="kpi"><div class="l">کل مکان‌ها (همه سرورها)</div><div class="v" id="k-places">…</div></div>
+    <div class="kpi"><div class="l">شماره موبایل</div><div class="v" id="k-mob">…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>شهرها</h2>
+    <div class="scroll"><table id="cities"></table></div>
+    <div style="margin-top:14px">
+      <textarea id="new-cities" placeholder="هر خط یک شهر، به فارسی و همان‌طور که در OpenStreetMap آمده، مثلاً:&#10;شیراز&#10;مشهد"></textarea>
+      <div class="row"><button id="add-cities">افزودن به صف</button><span class="muted" id="add-msg"></span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>سرورها (workers)</h2>
+    <div class="scroll"><table id="workers"></table></div>
+    <div class="row">
+      <input type="text" id="new-worker" placeholder="نام سرور جدید، مثلاً server-2" maxlength="60">
+      <button id="add-worker">ساخت توکن</button>
+    </div>
+    <div id="token-box"></div>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h2>فایل‌های اکسل ادغام‌شده</h2>
+      <div style="margin-bottom:10px"><button id="exp">ساخت خروجی همین الان</button> <span class="muted" id="exp-msg"></span></div>
+      <ul class="files" id="files"></ul>
+    </div>
+    <div class="card">
+      <h2>رویدادها</h2>
+      <div class="scroll"><table id="events"></table></div>
+    </div>
+  </div>
+</main>
+<script>
+const fa = n => Number(n || 0).toLocaleString('fa-IR');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const localTime = iso => iso ? new Date(iso).toLocaleString('fa-IR', {timeZone: 'Asia/Tehran', hour12: false}) : '-';
+const CITY = {queued: ['در صف', 'warn'], active: ['در حال کار', 'ok'], done: ['تمام شد', 'ok'], error: ['خطا', 'bad']};
+const PHASE = {scraping: 'در حال جمع‌آوری', pause: 'استراحت بین تایل‌ها', backoff: 'محدودیت گوگل (صبر)',
+  'outside active hours': 'خارج از ساعت کاری', 'hourly cap': 'سقف ساعتی', paused: 'متوقف از پنل',
+  'idle (queue empty)': 'بیکار (صف خالی)', 'building grid': 'ساخت شبکه', 'hub unreachable': 'پنل در دسترس نیست',
+  'finishing city': 'پایان شهر', starting: 'شروع'};
+let state = null;
+
+function ago(s) {
+  if (s == null) return 'هرگز';
+  if (s < 90) return 'همین الان';
+  if (s < 3600) return fa(Math.round(s / 60)) + ' دقیقه پیش';
+  if (s < 86400) return fa(Math.round(s / 3600)) + ' ساعت پیش';
+  return fa(Math.round(s / 86400)) + ' روز پیش';
+}
+
+async function api(body) {
+  const r = await fetch('api/hub/admin', {method: 'POST', cache: 'no-store',
+    headers: {'Content-Type': 'application/json', 'X-Leadmap': '1'}, body: JSON.stringify(body)});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+async function act(body, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try { await api(body); } catch (e) { alert('خطا: ' + e.message); }
+  load();
+}
+
+function cityActions(c, qi, qn) {  // qi: position among queued cities, qn: how many are queued
+  const q = esc(JSON.stringify(c.name));  // HTML-escaped JSON: safe inside the onclick attribute
+  const b = [];
+  if (c.status === 'queued') {
+    if (qi > 0) b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'up'})" title="بالا">▲</button>`);
+    if (qi < qn - 1) b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'down'})" title="پایین">▼</button>`);
+    if (qi > 0) b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'top'})">اول صف</button>`);
+  }
+  if (c.status === 'active')
+    b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'release'}, 'شهر از این سرور گرفته شود و به صف برگردد؟ (سرور بعدی از اول شروع می‌کند)')">برگرداندن به صف</button>`);
+  if (c.status === 'done' || c.status === 'error')
+    b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'requeue'})">صف دوباره</button>`);
+  b.push(`<button class="danger" onclick="act({op:'city',name:${q},action:'delete'}, 'حذف از لیست؟ (مکان‌های جمع‌شده حذف نمی‌شوند)')">حذف</button>`);
+  return b.join('');
+}
+
+function render(d) {
+  const online = d.workers.filter(w => w.online);
+  const by = s => d.cities.filter(c => c.status === s).length;
+  document.getElementById('k-w').textContent = fa(online.length) + ' / ' + fa(d.workers.length);
+  document.getElementById('k-active').textContent = fa(by('active'));
+  document.getElementById('k-queued').textContent = fa(by('queued'));
+  document.getElementById('k-done').textContent = fa(by('done'));
+  document.getElementById('k-places').textContent = fa(d.totals.places);
+  document.getElementById('k-mob').textContent = fa(d.totals.mobiles);
+
+  let al = '';
+  const idle = online.filter(w => !w.city && !w.paused).length;
+  if (idle && !by('queued')) al += `<div class="alert warn">${fa(idle)} سرور بیکار است و صف خالی است؛ شهر جدید اضافه کنید.</div>`;
+  const off = d.workers.filter(w => !w.online && w.city);
+  if (off.length) al += `<div class="alert bad">سرور ${off.map(w => esc(w.name)).join('، ')} بیش از ۱۰ دقیقه خبری نداده ولی شهر دستش است. اگر خاموش شده، شهرش را «برگرداندن به صف» کنید.</div>`;
+  document.getElementById('alert').innerHTML = al;
+
+  let rows = '<tr><th>#</th><th>شهر</th><th>وضعیت</th><th>سرور</th><th>پیشرفت تایل‌ها</th><th>مکان</th><th>موبایل</th><th></th></tr>';
+  let qn = 0;
+  const queued = by('queued');
+  d.cities.forEach(c => {
+    const t = c.tiles || {};
+    const total = Object.values(t).reduce((a, b) => a + b, 0);
+    const fin = (t.done || 0) + (t.empty || 0);
+    const [label, cls] = CITY[c.status] || [c.status, 'warn'];
+    const prog = total ? `${fa(fin)} / ${fa(total)}${t.failed ? ` <span class="muted">(${fa(t.failed)} ناموفق)</span>` : ''}` +
+      `<div class="mini"><div style="width:${fin / total * 100}%"></div></div>` : '<span class="muted">-</span>';
+    const qi = c.status === 'queued' ? qn++ : -1;
+    rows += `<tr><td class="num muted">${qi >= 0 ? fa(qi + 1) : ''}</td><td>${esc(c.name)}</td>` +
+      `<td><span class="pill ${cls}">${label}</span></td><td>${esc(c.worker || '-')}</td>` +
+      `<td class="num">${prog}</td><td class="num">${fa(c.places)}</td><td class="num">${fa(c.mobiles)}</td>` +
+      `<td><div class="act">${cityActions(c, qi, queued)}</div></td></tr>` +
+      (c.last_error ? `<tr><td></td><td colspan="7" class="err">${esc(c.last_error)}</td></tr>` : '');
+  });
+  if (!d.cities.length) rows += '<tr><td colspan="8" class="muted">هنوز شهری در صف نیست.</td></tr>';
+  document.getElementById('cities').innerHTML = rows;
+
+  rows = '<tr><th>سرور</th><th>وضعیت</th><th>شهر</th><th>کار فعلی</th><th>آخرین تماس</th><th>مکان ارسالی</th><th></th></tr>';
+  for (const w of d.workers) {
+    const r = w.report || {};
+    const st = w.paused ? ['متوقف', 'warn'] : w.online ? ['آنلاین', 'ok'] : ['آفلاین', 'bad'];
+    let job = PHASE[r.phase] || r.phase || '-';
+    if (r.tile) job += ` <bdi class="muted">${esc(r.tile)}</bdi>`;
+    if (r.backoff && r.backoff.startsWith('ACTIVE')) job += `<div class="err">${esc(r.backoff)}</div>`;
+    if (r.sync_backlog) job += `<div class="muted">${fa(r.sync_backlog)} مکان در انتظار ارسال</div>`;
+    const btn = w.paused
+      ? `<button class="ghost" onclick="act({op:'worker',id:${w.id},action:'resume'})">ادامه</button>`
+      : `<button class="ghost" onclick="act({op:'worker',id:${w.id},action:'pause'})">توقف</button>`;
+    rows += `<tr><td>${esc(w.name)}<div class="muted"><bdi>${esc(w.hostname || '')} ${esc(w.ip || '')}</bdi></div></td>` +
+      `<td><span class="pill ${st[1]}">${st[0]}</span></td><td>${esc(w.city || '-')}</td>` +
+      `<td style="white-space:normal">${job}</td><td class="muted">${ago(w.age_s)}</td><td class="num">${fa(w.places)}</td>` +
+      `<td><div class="act">${btn}<button class="danger" onclick="act({op:'worker',id:${w.id},action:'revoke'}, 'توکن این سرور باطل شود؟ شهرش به صف برمی‌گردد.')">حذف</button></div></td></tr>`;
+  }
+  if (!d.workers.length) rows += '<tr><td colspan="7" class="muted">هنوز سروری تعریف نشده؛ پایین یک توکن بسازید.</td></tr>';
+  document.getElementById('workers').innerHTML = rows;
+
+  document.getElementById('files').innerHTML = d.exports.length
+    ? d.exports.map(f => `<li><a href="hub-exports/${encodeURIComponent(f)}"><bdi dir="ltr">${esc(f)}</bdi></a></li>`).join('')
+    : '<li class="muted">هنوز فایلی نیست (هر شب خودکار ساخته می‌شود)</li>';
+
+  const EV = {assign: ['واگذاری', 'ok'], done: ['پایان شهر', 'ok'], error: ['خطا', 'bad'], export: ['خروجی', 'ok'], city: ['شهر', 'warn'], worker: ['سرور', 'warn']};
+  rows = '<tr><th>زمان</th><th>نوع</th><th>جزئیات</th></tr>';
+  for (const e of d.events) {
+    const [label, cls] = EV[e.type] || [e.type, 'warn'];
+    rows += `<tr><td class="muted">${localTime(e.timestamp)}</td><td><span class="pill ${cls}">${label}</span></td>` +
+      `<td class="err" style="color:inherit">${esc(e.detail)}</td></tr>`;
+  }
+  document.getElementById('events').innerHTML = rows;
+}
+
+async function load() {
+  try {
+    const r = await fetch('api/hub/state', {cache: 'no-store'});
+    state = await r.json();
+    render(state);
+  } catch (e) {
+    document.getElementById('alert').innerHTML = '<div class="alert bad">اتصال به سرور برقرار نشد</div>';
+  }
+}
+
+document.getElementById('add-cities').onclick = async () => {
+  const ta = document.getElementById('new-cities'), m = document.getElementById('add-msg');
+  const names = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!names.length) return;
+  try {
+    const d = await api({op: 'add_cities', names});
+    m.textContent = d.added.length ? `${fa(d.added.length)} شهر اضافه شد ✓` : 'همه از قبل در لیست بودند';
+    ta.value = '';
+  } catch (e) { m.textContent = 'خطا: ' + e.message; }
+  load();
+};
+
+document.getElementById('add-worker').onclick = async () => {
+  const inp = document.getElementById('new-worker'), box = document.getElementById('token-box');
+  const name = inp.value.trim();
+  if (!name) return;
+  try {
+    const d = await api({op: 'add_worker', name});
+    const url = (state && state.public_url) || location.origin;
+    const cmd = `./install.sh --hub ${url} --hub-token ${d.token} --contact YOUR_EMAIL`;
+    box.innerHTML = `<div class="alert ok" style="margin-top:12px;font-weight:400">
+      توکن سرور <b>${esc(name)}</b> ساخته شد. <b>فقط همین یک بار نمایش داده می‌شود</b>؛ الان کپی کنید.
+      <div class="muted" style="margin-top:8px">روی سرور جدید، داخل پوشه‌ی بسته‌ی نصب:</div>
+      <pre class="token">${esc(cmd)}</pre>
+      <div class="row"><button id="copy-cmd">کپی دستور</button></div></div>`;
+    document.getElementById('copy-cmd').onclick = () => navigator.clipboard.writeText(cmd);
+    inp.value = '';
+  } catch (e) { box.innerHTML = `<div class="alert bad" style="margin-top:12px">خطا: ${esc(e.message)}</div>`; }
+  load();
+};
+
+document.getElementById('exp').onclick = async (ev) => {
+  const b = ev.target, m = document.getElementById('exp-msg');
+  b.disabled = true; m.textContent = 'در حال ساخت…';
+  try { await api({op: 'export'}); m.textContent = 'ساخته شد ✓'; } catch (e) { m.textContent = 'خطا: ' + e.message; }
+  b.disabled = false; load();
+};
+
+load();
+setInterval(load, 20000);
+</script>
+</body>
+</html>

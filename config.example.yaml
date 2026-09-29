@@ -1,0 +1,83 @@
+# Google Maps lead collector — all settings live here.
+
+city: "__CITY__"                # filled in by install.sh (unused when hub.url is set)
+country_code: "ir"         # Nominatim countrycodes filter
+
+paths:
+  db: data/leads.db
+  cache: data/cache          # Nominatim responses
+  debug: debug               # raw responses, screenshots, block dumps
+  exports: exports
+  logs: logs
+  profile: data/profile      # persistent Chromium profile
+  debug_max_mb: 150          # oldest debug files are pruned beyond this (disk is small)
+
+nominatim:
+  user_agent: "leadmap-grid-builder/1.0 (contact: __CONTACT__)"
+  min_interval_s: 1.1
+
+grid:
+  tile_size_m: 800
+  zoom: 16
+  pad_ratio: 0.25            # padded tile bounds = tile grown by 25% on each side
+
+search:
+  queries: ["املاک", "مشاور املاک"]
+  hl: fa
+  gl: ir
+  max_idle_scrolls: 4        # stop scrolling after N scrolls with no new results
+  max_scrolls: 40            # hard cap per query
+  open_details_for_missing_phone: true
+
+pacing:
+  scroll_delay_s: [4, 10]
+  long_pause_chance: 0.08    # chance per scroll step of an extra long pause
+  long_pause_s: [20, 60]
+  detail_delay_s: [6, 14]    # between detail page opens
+  query_pause_s: [15, 40]    # between queries on the same tile
+  tile_pause_s: [120, 360]
+  break_every_tiles: [8, 12]
+  break_s: [1200, 2400]
+  max_tiles_per_hour: 8
+  max_details_per_hour: 40
+  active_hours: ["08:00", "01:00"]   # Asia/Tehran; window may cross midnight
+  timezone: Asia/Tehran
+  browser_restart_hours: 3
+
+browser:
+  headless: true
+  use_profile_login: false   # true → reuse data/profile where you logged in manually (--headed)
+  viewport: [1366, 768]
+  locale: fa-IR
+  timezone: Asia/Tehran
+  nav_timeout_s: 45
+
+blocks:
+  backoff_hours: [3, 6, 12, 24]      # successive backoffs; last value is the cap
+  empty_streak_threshold: 3          # empty tiles in a row adjacent to previously productive ones
+
+retries:
+  max_attempts: 3
+  retry_delay_s: [60, 180, 600]      # growing delay between attempts
+
+export:
+  daily_time: "23:30"                # Asia/Tehran
+
+dashboard:                           # read-only status page: python main.py dashboard
+  enabled: __DASH_ENABLED__
+  host: 0.0.0.0
+  port: 8880
+  public_host: __PUBLIC_HOST__
+  user: admin
+  password: "__PASSWORD__"
+  cert: __CERT__
+  key: __KEY__
+
+hub:                                 # many servers sharing one queue of cities (README: "Central panel")
+  server: __HUB_SERVER__             # true on the ONE central server: /hub panel + worker API on the dashboard port
+  url: "__HUB_URL__"                 # workers: the central dashboard URL, e.g. https://panel.example.com:8880
+  token: "__HUB_TOKEN__"             # workers: token from the panel ("ساخت توکن"); empty url/token = standalone
+  insecure_tls: __HUB_INSECURE__     # workers: true only if the central server uses a self-signed certificate
+  heartbeat_s: 60                    # progress report + place upload interval
+  sync_batch: 500                    # places per upload
+  idle_poll_s: 900                   # queue empty: ask again after this long

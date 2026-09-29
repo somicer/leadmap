@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>گزارش جمع‌آوری املاک</title>
+<style>
+:root {
+  --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+  --accent: #2563eb; --ok: #15803d; --ok-bg: #dcfce7; --warn: #b45309; --warn-bg: #fef3c7;
+  --bad: #b91c1c; --bad-bg: #fee2e2; --bar: #e5e9f0; --code: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218; --card: #171b23; --text: #e6e9ef; --muted: #9098a8; --line: #272d38;
+    --accent: #60a5fa; --ok: #4ade80; --ok-bg: #11301d; --warn: #fbbf24; --warn-bg: #3a2c0c;
+    --bad: #f87171; --bad-bg: #3b1515; --bar: #262c37; --code: #11151c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.6 Vazirmatn, Tahoma, "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+.muted { color: var(--muted); font-size: 13px; }
+.pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.ok { background: var(--ok-bg); color: var(--ok); }
+.warn { background: var(--warn-bg); color: var(--warn); }
+.bad { background: var(--bad-bg); color: var(--bad); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.kpi .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .l { color: var(--muted); font-size: 13px; }
+.bar { height: 10px; background: var(--bar); border-radius: 99px; overflow: hidden; margin: 8px 0 4px; }
+.bar > div { height: 100%; background: var(--accent); border-radius: 99px; transition: width .4s; }
+.alert { border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; font-weight: 600; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+td.num { font-variant-numeric: tabular-nums; }
+.err { color: var(--bad); white-space: normal; max-width: 380px; font-size: 13px; }
+pre { background: var(--code); border-radius: 8px; padding: 10px; margin: 0; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  direction: ltr; text-align: left; overflow-x: auto; max-height: 420px; overflow-y: auto; white-space: pre; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.card, .kpi { min-width: 0; }
+.kpi .s { font-size: 14px; color: var(--muted); font-weight: 600; }
+@media (max-width: 760px) { .two { grid-template-columns: minmax(0, 1fr); } }
+a { color: var(--accent); }
+button { font: inherit; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+button:disabled { opacity: .6; cursor: default; }
+ul.files { list-style: none; margin: 0; padding: 0; }
+ul.files li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>گزارش جمع‌آوری املاک از گوگل‌مپ</h1>
+      <div class="muted">به‌روزرسانی خودکار هر ۳۰ ثانیه · <span id="now">…</span></div>
+    </div>
+    <div id="service"></div>
+  </header>
+
+  <div id="alert"></div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">شهر فعلی</div><div class="v" id="k-city">…</div></div>
+    <div class="kpi"><div class="l">پیشرفت تایل‌ها</div><div class="v" id="k-prog">…</div></div>
+    <div class="kpi"><div class="l">کل مکان‌ها (همه شهرها)</div><div class="v" id="k-places">…</div></div>
+    <div class="kpi"><div class="l">شماره موبایل</div><div class="v" id="k-mob">…</div></div>
+    <div class="kpi"><div class="l">جدید امروز</div><div class="v" id="k-today">…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>پیشرفت شهر فعلی</h2>
+    <div class="bar"><div id="bar" style="width:0"></div></div>
+    <div class="muted" id="bar-txt"></div>
+  </div>
+
+  <div class="card">
+    <h2>شهرها</h2>
+    <div class="scroll"><table id="cities"></table></div>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h2>آخرین تایل‌ها</h2>
+      <div class="scroll"><table id="tiles"></table></div>
+    </div>
+    <div class="card">
+      <h2>فایل‌های اکسل</h2>
+      <div style="margin-bottom:10px"><button id="exp">ساخت خروجی همین الان</button> <span class="muted" id="exp-msg"></span></div>
+      <ul class="files" id="files"></ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>رویدادها (بلاک، خطا، خروجی)</h2>
+    <div class="scroll"><table id="events"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>لاگ زنده <span class="muted">(ساعت‌ها به وقت UTC)</span></h2>
+    <pre id="log"></pre>
+  </div>
+</main>
+<script>
+const fa = n => Number(n || 0).toLocaleString('fa-IR');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const STATUS = {done: ['انجام شد', 'ok'], empty: ['خالی', 'warn'], failed: ['ناموفق', 'bad'], pending: ['در صف', 'warn']};
+const localTime = iso => iso ? new Date(iso).toLocaleString('fa-IR', {timeZone: 'Asia/Tehran', hour12: false}) : '';
+
+function hoursLeft(s) {
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return (h ? fa(h) + ' ساعت و ' : '') + fa(m) + ' دقیقه';
+}
+
+async function load() {
+  let d;
+  try {
+    const r = await fetch('api/status', {cache: 'no-store'});
+    d = await r.json();
+  } catch (e) {
+    document.getElementById('alert').innerHTML = '<div class="alert bad">اتصال به سرور برقرار نشد</div>';
+    return;
+  }
+  document.getElementById('now').textContent = 'ساعت تهران: ' + d.now;
+
+  const svc = d.service === 'active' ? ['سرویس در حال اجرا', 'ok'] : ['سرویس متوقف است (' + d.service + ')', 'bad'];
+  document.getElementById('service').innerHTML = `<span class="pill ${svc[1]}">${svc[0]}</span>` +
+    (d.hub_server ? ' <a href="hub" style="margin-inline-start:10px">پنل مرکزی ←</a>' : '');
+
+  let alert = '';
+  if (d.backoff.remaining_s > 0) {
+    alert = `<div class="alert bad">گوگل موقتاً محدود کرده (سطح ${fa(d.backoff.level)}). ` +
+      `اسکریپت خودکار ${hoursLeft(d.backoff.remaining_s)} صبر می‌کند و بعد ادامه می‌دهد. علت: ${esc(d.backoff.reason)}</div>`;
+  } else {
+    const [a, b] = d.active_hours;
+    const hm = d.now.slice(11, 16);
+    const inside = a < b ? (hm >= a && hm < b) : (hm >= a || hm < b);
+    if (!inside) alert = `<div class="alert warn">خارج از ساعت کاری (${a} تا ${b})؛ اسکریپت خوابیده و خودش ادامه می‌دهد.</div>`;
+  }
+  document.getElementById('alert').innerHTML = alert;
+
+  const cur = d.cities.find(c => c.city === d.city) || {tiles: {}, tiles_total: 0};
+  const fin = (cur.tiles.done || 0) + (cur.tiles.empty || 0);
+  const pct = cur.tiles_total ? fin / cur.tiles_total * 100 : 0;
+  document.getElementById('k-city').textContent = d.city;
+  document.getElementById('k-prog').textContent = fa(pct.toFixed(1)) + '٪';
+  document.getElementById('bar').style.width = pct + '%';
+  document.getElementById('bar-txt').textContent =
+    `${fa(fin)} از ${fa(cur.tiles_total)} تایل · ${fa(cur.tiles.pending)} در صف · ${fa(cur.tiles.failed)} ناموفق · ${fa(d.tiles_last_hour)} تایل در ساعت گذشته`;
+
+  let places = 0, mobs = 0;
+  let rows = '<tr><th>شهر</th><th>پیشرفت</th><th>مکان</th><th>با تلفن</th><th>موبایل</th><th>درصد موبایل</th></tr>';
+  for (const c of d.cities) {
+    const f = (c.tiles.done || 0) + (c.tiles.empty || 0);
+    places += c.places; mobs += c.mobiles;
+    rows += `<tr><td>${esc(c.city)}${c.city === d.city ? ' <span class="pill ok">فعال</span>' : ''}</td>` +
+      `<td class="num">${fa(f)} / ${fa(c.tiles_total)}</td><td class="num">${fa(c.places)}</td>` +
+      `<td class="num">${fa(c.phones)}</td><td class="num">${fa(c.mobiles)}</td>` +
+      `<td class="num">${c.places ? fa(Math.round(c.mobiles / c.places * 100)) + '٪' : '-'}</td></tr>`;
+  }
+  document.getElementById('cities').innerHTML = rows;
+  document.getElementById('k-places').textContent = fa(places);
+  document.getElementById('k-mob').textContent = fa(mobs);
+  document.getElementById('k-today').innerHTML = `${fa(d.new_today)} <span class="s">(${fa(d.new_today_mobile)} موبایل)</span>`;
+
+  rows = '<tr><th>تایل</th><th>وضعیت</th><th>نتیجه</th><th>زمان</th></tr>';
+  for (const t of d.recent_tiles) {
+    const [label, cls] = STATUS[t.status] || [t.status, 'warn'];
+    rows += `<tr><td><bdi>${esc(t.id)}</bdi></td><td><span class="pill ${cls}">${label}</span></td>` +
+      `<td class="num">${fa(t.results_count)}</td><td class="muted">${localTime(t.updated_at)}</td></tr>` +
+      (t.last_error ? `<tr><td colspan="4" class="err">${esc(t.last_error)}</td></tr>` : '');
+  }
+  document.getElementById('tiles').innerHTML = rows;
+
+  document.getElementById('files').innerHTML = d.exports.length
+    ? d.exports.map(f => `<li><a href="exports/${encodeURIComponent(f)}">${esc(f)}</a></li>`).join('')
+    : '<li class="muted">هنوز فایلی ساخته نشده (هر شب ساعت ۲۳:۳۰ ساخته می‌شود)</li>';
+
+  const EV = {block: ['بلاک', 'bad'], error: ['خطا', 'bad'], export: ['خروجی', 'ok'], init: ['شبکه‌بندی', 'ok'], retry_failed: ['تلاش مجدد', 'warn']};
+  rows = '<tr><th>زمان</th><th>نوع</th><th>جزئیات</th></tr>';
+  for (const e of d.events) {
+    const [label, cls] = EV[e.type] || [e.type, 'warn'];
+    rows += `<tr><td class="muted">${localTime(e.timestamp)}</td><td><span class="pill ${cls}">${label}</span></td>` +
+      `<td class="err" style="color:inherit">${esc(e.detail)}</td></tr>`;
+  }
+  document.getElementById('events').innerHTML = rows;
+
+  const pre = document.getElementById('log');
+  const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 5;
+  pre.textContent = d.log.join('\n');
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
+}
+
+document.getElementById('exp').onclick = async (ev) => {
+  const b = ev.target, m = document.getElementById('exp-msg');
+  b.disabled = true; m.textContent = 'در حال ساخت…';
+  try {
+    const r = await fetch('api/export', {method: 'POST'});
+    m.textContent = r.ok ? 'ساخته شد ✓' : 'خطا';
+  } catch (e) { m.textContent = 'خطا'; }
+  b.disabled = false; load();
+};
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

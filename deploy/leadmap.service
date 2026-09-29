@@ -1,0 +1,24 @@
+[Unit]
+Description=Google Maps real-estate lead collector (leadmap)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@APP_DIR@
+ExecStart=@APP_DIR@/.venv/bin/python @APP_DIR@/main.py run
+Restart=on-failure
+RestartSec=300
+# SIGTERM → graceful shutdown (current write finishes, tile stays pending)
+KillSignal=SIGTERM
+# signal only python; it closes Chromium itself
+KillMode=mixed
+TimeoutStopSec=90
+Environment=PYTHONUNBUFFERED=1
+# stdout duplicates logs/run.log; keep the journal small
+StandardOutput=null
+StandardError=journal
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

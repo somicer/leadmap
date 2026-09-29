@@ -1,0 +1,22 @@
+[Unit]
+Description=leadmap status dashboard (HTTPS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@APP_DIR@
+ExecStart=@APP_DIR@/.venv/bin/python @APP_DIR@/main.py dashboard
+Restart=always
+RestartSec=10
+# read-only page; safe to restart any time
+KillSignal=SIGTERM
+TimeoutStopSec=90
+Environment=PYTHONUNBUFFERED=1
+# stdout duplicates logs/dashboard.log
+StandardOutput=null
+StandardError=journal
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

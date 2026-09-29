@@ -1,0 +1,13 @@
+# secrets & server-specific state
+config.yaml
+data/
+debug/
+logs/
+exports/
+doc.txt
+*.tgz
+
+# python
+.venv/
+__pycache__/
+.pytest_cache/
