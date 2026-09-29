@@ -319,7 +319,27 @@ def test_service_keeps_cached_job_when_hub_down(tmp_path, monkeypatch):
     class DownHub(FakeHub):
         def claim(self):
             raise HubUnavailable("down")
+
+        def heartbeat(self, report, force=False):
+            raise HubUnavailable("down")
     svc, db, sleeps = make_service(tmp_path, monkeypatch, DownHub([]))
     assert not svc.hub_ready() and sleeps == ["hub unreachable"]  # nothing cached: wait
     db.set_state("hub_job", {"city": "کرج", "segment": FRUIT, "queries": FRUIT_KW})
     assert svc.hub_ready() and (svc.city, svc.segment) == ("کرج", FRUIT)  # cached: keep scraping
+
+
+def test_heartbeat_cuts_pause_short(tmp_path, monkeypatch):
+    hub = FakeHub(["کرج"])
+    svc, db, _ = make_service(tmp_path, monkeypatch, hub)
+    assert svc.hub_ready()
+    svc.phase = "pause"
+    hub.queue.clear()                                   # job deleted in the panel
+    with pytest.raises(service_mod.JobChanged):
+        svc.hub_heartbeat(force=True)
+    svc.phase = "scraping"                              # never interrupts a tile in progress
+    svc.hub_heartbeat(force=True)
+    svc.set_job(None)
+    svc.phase = "idle (queue empty)"
+    hub.heartbeat = lambda report, force=False: {"assignment": None, "paused": False, "work_available": True}
+    with pytest.raises(service_mod.JobChanged):          # new job queued: claim it now
+        svc.hub_heartbeat(force=True)

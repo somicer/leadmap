@@ -376,7 +376,9 @@ class HubDB:
                 self._set_job(job["id"], tiles=json.dumps(_tile_counts(info["tiles"])))
             accepted = sum(self._upsert_place(p, w["id"]) for p in places)
             assignment = self.assignment(w["id"])
-        return {"assignment": assignment, "paused": bool(w["paused"]), "accepted": accepted}
+            waiting = self.conn.execute("SELECT 1 FROM jobs WHERE status='queued' LIMIT 1").fetchone()
+        return {"assignment": assignment, "paused": bool(w["paused"]), "accepted": accepted,
+                "work_available": waiting is not None}
 
     def complete(self, w, ip: str, info: dict) -> dict:
         with self._tx():

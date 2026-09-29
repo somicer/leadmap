@@ -16,6 +16,10 @@ log = logging.getLogger(__name__)
 _UNSET = object()
 
 
+class JobChanged(Exception):
+    """The hub took our job away or paused us: cut the current sleep short."""
+
+
 # --- backoff state (persisted in DB) -------------------------------------------
 def backoff_status(db) -> str:
     st = db.get_state("backoff") or {}
@@ -132,6 +136,12 @@ class Service:
             log.info("Service stopped cleanly")
 
     def loop_once(self):
+        try:
+            self._loop_once()
+        except JobChanged:
+            log.info("hub: assignment changed; interrupting the current pause")
+
+    def _loop_once(self):
         self.tick()
         if self.hub and not self.hub_ready():
             return
@@ -276,8 +286,14 @@ class Service:
             log.exception("hub heartbeat failed")
             return
         if reply is not None:
+            was_paused = self.hub_paused
             self.hub_assignment = reply.get("assignment")
             self.hub_paused = bool(reply.get("paused"))
+            a = self.hub_assignment
+            changed = self.job is not None and (not a or (a["city"], a["segment"]) != (self.city, self.segment))
+            changed |= self.job is None and not self.hub_paused and bool(reply.get("work_available") or a)
+            if self.phase != "scraping" and (changed or self.hub_paused != was_paused):
+                raise JobChanged()
 
     def ensure_browser(self):
         if self.browser.alive and self.browser.age_hours() >= self.cfg["pacing"]["browser_restart_hours"]:
@@ -330,6 +346,7 @@ class Service:
             self.empty_streak = []
             reset_backoff(self.db)
 
+        self.phase = "pause"
         self.pacer.maybe_break()
         self.pacer.tile_pause()
 
