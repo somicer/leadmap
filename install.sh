@@ -10,7 +10,7 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CITY="" DOMAIN="" CERT="" KEY="" CONTACT="" PORT=8880
+CITY="" SEGMENT="" KEYWORDS="" DOMAIN="" CERT="" KEY="" CONTACT="" PORT=8880
 DASHBOARD=1 SYSTEMD=1 START=1 TESTS=1 YES=0 RECONFIGURE=0
 HUB_URL="" HUB_TOKEN="" HUB_INSECURE=false HUB_SERVER=false
 
@@ -19,16 +19,18 @@ usage() {
   cat <<EOF
 Options:
   --city NAME        city to scrape (Persian name as on OpenStreetMap, e.g. "اصفهان")
+  --segment NAME     business segment (صنف) to scrape, e.g. "میوه فروشی" (default: املاک)
+  --keywords LIST    comma-separated Google Maps searches for --segment, e.g. "میوه فروشی,میوه,تره بار"
   --contact EMAIL    contact for the OpenStreetMap Nominatim User-Agent (their policy asks for one)
   --domain HOST      dashboard hostname (default: this server's public IP)
   --cert FILE        TLS certificate (fullchain) for the dashboard; default: self-signed
   --key FILE         TLS private key
   --port N           dashboard port (default 8880)
   --no-dashboard     don't install the status dashboard
-  --hub URL          worker mode: take cities from the central panel at URL (no --city needed)
+  --hub URL          worker mode: take jobs (city × segment) from the central panel at URL (no --city needed)
   --hub-token T      this server's token (central panel → "ساخت توکن")
   --hub-insecure     the central panel uses a self-signed certificate
-  --hub-server       make THIS server the central panel (queue of cities for all servers)
+  --hub-server       make THIS server the central panel (job queue and segments for all servers)
   --no-systemd       don't install/start systemd services (just set up the app)
   --no-start         install services but don't start the scraper yet
   --skip-tests       don't run the unit tests
@@ -40,6 +42,8 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --city) CITY="$2"; shift 2 ;;
+    --segment) SEGMENT="$2"; shift 2 ;;
+    --keywords) KEYWORDS="$2"; shift 2 ;;
     --contact) CONTACT="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --cert) CERT="$2"; shift 2 ;;
@@ -76,6 +80,7 @@ cd "$APP_DIR"
 [[ -n $HUB_URL && -z $HUB_TOKEN ]] && die "--hub needs --hub-token (create one in the central panel)"
 [[ -z $HUB_URL && -n $HUB_TOKEN ]] && die "--hub-token needs --hub URL"
 [[ $HUB_SERVER == true && $DASHBOARD == 0 ]] && die "--hub-server needs the dashboard (drop --no-dashboard)"
+[[ -n $KEYWORDS && -z $SEGMENT ]] && die "--keywords needs --segment NAME"
 
 # --- 1. checks -------------------------------------------------------------------
 step "Checking the server"
@@ -172,7 +177,7 @@ PY
   fi
 else
   if [[ -n $HUB_URL ]]; then
-    CITY=${CITY:-"-"}   # cities come from the central panel
+    CITY=${CITY:-"-"}   # jobs come from the central panel
   fi
   [[ -n $CITY ]] || CITY=$(ask "City to scrape (Persian name, e.g. اصفهان)" "اصفهان")
   # OpenStreetMap's Nominatim rejects (HTTP 403) requests without a real contact address.
@@ -216,6 +221,28 @@ PY
   ok "config.yaml written (city: $CITY)"
 fi
 
+# --segment/--keywords: add the segment to config.yaml → search.segments and make it the default
+if [[ -n $SEGMENT ]]; then
+  SEGMENT="$SEGMENT" KEYWORDS="$KEYWORDS" .venv/bin/python - <<'PY' || die "could not add the segment"
+import json, os, re, sys, yaml
+seg = " ".join(os.environ["SEGMENT"].split())
+kws = [" ".join(k.split()) for k in re.split(r"[,،\n]", os.environ["KEYWORDS"]) if k.strip()]
+s = open("config.yaml", encoding="utf-8").read()
+known = (yaml.safe_load(s).get("search") or {}).get("segments") or {}
+if not kws and seg not in known:
+    sys.exit(f"segment {seg!r} is not in config.yaml yet: also pass --keywords")
+if kws:
+    line = f"    {json.dumps(seg, ensure_ascii=False)}: {json.dumps(kws, ensure_ascii=False)}\n"
+    s = re.sub(r"(?m)^    " + re.escape(seg) + r":.*\n|^    " + re.escape(json.dumps(seg, ensure_ascii=False)) + r":.*\n", "", s)
+    s = re.sub(r"(?m)^(  segments:.*\n)", lambda m: m.group(1) + line, s, count=1)
+s = re.sub(r"(?m)^  segment: .*$", f"  segment: {json.dumps(seg, ensure_ascii=False)}", s, count=1)
+open("config.yaml", "w", encoding="utf-8").write(s)
+assert yaml.safe_load(s)["search"]["segment"] == seg
+PY
+  ok "segment: $SEGMENT"
+fi
+SEGMENT=${SEGMENT:-$(.venv/bin/python -c 'import yaml; s = yaml.safe_load(open("config.yaml")).get("search") or {}; print(s.get("segment") or next(iter(s.get("segments") or {"املاک": 0})))')}
+
 HUB_MODE=$(.venv/bin/python -c 'import yaml; h = yaml.safe_load(open("config.yaml")).get("hub") or {}; print(int(bool(h.get("url") and h.get("token"))))')
 
 # --- 5. grid for the city / hub connection ---------------------------------------------
@@ -225,10 +252,10 @@ if [[ $HUB_MODE == 1 ]]; then
   [[ $SYSTEMD == 1 && $DASHBOARD == 1 ]] && systemctl is-active -q leadmap-dashboard && systemctl restart leadmap-dashboard && sleep 2
   out=$(.venv/bin/python main.py hub ping 2>&1) || { echo "$out" | tail -3; die "cannot reach the central panel — check --hub URL / --hub-token (and --hub-insecure for a self-signed cert)"; }
   echo "$out" | grep -vE ' INFO ' | sed 's/^/    /'
-  ok "cities will be taken from the central queue (grids are built when a city is claimed)"
+  ok "jobs (city × segment) will be taken from the central queue (grids are built when a job is claimed)"
 else
-  step "Building the tile grid for $CITY (OpenStreetMap)"
-  out=$(.venv/bin/python main.py init --city "$CITY" 2>&1) \
+  step "Building the tile grid for $CITY / $SEGMENT (OpenStreetMap)"
+  out=$(.venv/bin/python main.py init --city "$CITY" --segment "$SEGMENT" 2>&1) \
     || { echo "$out" | tail -3
            grep -q "403" <<<"$out" && die "OpenStreetMap refused the request (403): set a real contact e-mail in config.yaml → nominatim.user_agent, then re-run"
            die "grid build failed — check the city name (Persian, as on openstreetmap.org)"; }
@@ -263,7 +290,7 @@ echo "    App folder : $APP_DIR"
 if [[ $HUB_MODE == 1 ]]; then
   echo "    Cities     : from the central panel ($(.venv/bin/python -c 'import yaml; print(yaml.safe_load(open("config.yaml"))["hub"]["url"])')/hub)"
 else
-  echo "    City       : $CITY"
+  echo "    City       : $CITY  |  segment: $SEGMENT"
 fi
 echo "    Status     : cd $APP_DIR && .venv/bin/python main.py status"
 echo "    Logs       : tail -f $APP_DIR/logs/run.log"
@@ -277,7 +304,7 @@ if [[ $DASHBOARD == 1 && $SYSTEMD == 1 ]]; then
     echo "    Login      : see config.yaml → dashboard"
   fi
   if .venv/bin/python -c 'import sys, yaml; sys.exit(not (yaml.safe_load(open("config.yaml")).get("hub") or {}).get("server"))'; then
-    echo "    Central    : https://$HOST:$PORT/hub   (queue cities, create worker tokens)"
+    echo "    Central    : https://$HOST:$PORT/hub   (segments, job queue, worker tokens)"
   fi
 fi
 echo

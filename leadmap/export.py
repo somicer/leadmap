@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 log = logging.getLogger(__name__)
 
 COLUMNS = ["name", "phone", "address", "category", "rating", "maps_url", "first_seen"]
+LOCAL_COLUMNS = ["segment", "city"] + COLUMNS  # one server can hold several segments and cities
 
 
 def _frame(db, tz, where: str = "", args=(), columns=COLUMNS) -> pd.DataFrame:
@@ -49,18 +50,18 @@ def export_all(cfg, db, day: date | None = None):
     start = datetime.combine(day, time(0), tz).astimezone(timezone.utc)
     end = start + timedelta(days=1)
     daily = _frame(db, tz, "WHERE first_seen >= ? AND first_seen < ?",
-                   (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")))
+                   (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")), columns=LOCAL_COLUMNS)
     if daily.empty:
         msg = f"daily export {day}: no new places, file skipped"
         log.info(msg)
     else:
         path = out / f"leads_{day.isoformat()}.xlsx"
-        _write(daily, path)
+        _write(daily, path, columns=LOCAL_COLUMNS)
         msg = f"daily export {day}: {len(daily)} new places ({int(daily['is_mobile'].sum())} mobile) → {path.name}"
         log.info(msg)
 
-    allp = _frame(db, tz)
-    _write(allp, out / "all_leads.xlsx")
+    allp = _frame(db, tz, columns=LOCAL_COLUMNS)
+    _write(allp, out / "all_leads.xlsx", columns=LOCAL_COLUMNS)
     msg += f"; all_leads.xlsx: {len(allp)} places ({int(allp['is_mobile'].sum()) if len(allp) else 0} mobile)"
     log.info(msg)
     db.event("export", msg)

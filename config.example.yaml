@@ -1,4 +1,4 @@
-# Google Maps lead collector — all settings live here.
+# Google Maps lead collector (any business segment) — all settings live here.
 
 city: "__CITY__"                # filled in by install.sh (unused when hub.url is set)
 country_code: "ir"         # Nominatim countrycodes filter
@@ -22,7 +22,12 @@ grid:
   pad_ratio: 0.25            # padded tile bounds = tile grown by 25% on each side
 
 search:
-  queries: ["املاک", "مشاور املاک"]
+  # Segments (صنف): a name and the keywords searched on every tile. Add any trade you like.
+  # With the central panel (hub), segments are managed in the panel instead of here.
+  segments:
+    املاک: ["املاک", "مشاور املاک"]
+    میوه فروشی: ["میوه فروشی", "میوه", "میوه فروش", "تره بار"]
+  segment: املاک             # default for init/run/test-tile without --segment
   hl: fa
   gl: ir
   max_idle_scrolls: 4        # stop scrolling after N scrolls with no new results

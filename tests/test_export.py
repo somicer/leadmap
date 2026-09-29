@@ -22,7 +22,7 @@ def test_export(tmp_path):
     assert wb.sheetnames == ["موبایل", "همه"]
     ws = wb["همه"]
     assert ws.sheet_view.rightToLeft and ws.freeze_panes == "A2" and ws["A1"].font.bold
-    assert ws.max_row == 2 and ws["B2"].value == "09121234567"
+    assert ws["A1"].value == "segment" and ws.max_row == 2 and ws["D2"].value == "09121234567"
     allw = openpyxl.load_workbook(tmp_path / "all_leads.xlsx")
     assert allw["همه"].max_row == 3 and allw["موبایل"].max_row == 2
     # a day with nothing new: daily file skipped, cumulative still written

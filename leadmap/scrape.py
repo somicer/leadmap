@@ -37,8 +37,10 @@ class TransientError(Exception):
 
 
 class TileScraper:
-    def __init__(self, cfg, db, browser, pacer, city_poly=None, dump_dir: Path | None = None):
+    def __init__(self, cfg, db, browser, pacer, city_poly=None, dump_dir: Path | None = None,
+                 queries: list[str] | None = None):
         self.cfg = cfg
+        self.queries = queries  # the segment's keywords
         self.db = db
         self.browser = browser
         self.pacer = pacer
@@ -53,7 +55,8 @@ class TileScraper:
         s = self.cfg["search"]
         stats = {"raw": 0, "kept": 0, "new": 0, "phones": 0, "mobiles": 0, "details": 0,
                  "source": set(), "places": {}}
-        for i, q in enumerate(s["queries"]):
+        queries = self.queries or s.get("queries") or next(iter(s["segments"].values()))
+        for i, q in enumerate(queries):
             if i:
                 self.pacer.query_pause()
             places, source = self.scrape_query(tile, q)
@@ -62,7 +65,7 @@ class TileScraper:
             for p in places:
                 if not self._in_area(tile, p):
                     continue
-                p.update(city=tile["city"], tile_id=tile["id"])
+                p.update(city=tile["city"], segment=tile["segment"], tile_id=tile["id"])
                 is_new = self.db.upsert_place(p)
                 if p["place_id"] not in stats["places"]:
                     stats["new"] += is_new
@@ -198,7 +201,14 @@ class TileScraper:
     def fill_missing_phones(self, places: list[dict]) -> int:
         opened = failures = 0
         for p in places:
-            if p.get("phone") or not self.db.needs_details(p["place_id"]):
+            if p.get("phone"):
+                continue
+            known = self.db.known_phone(p["place_id"])  # found under another segment already
+            if known:
+                p.update(known)
+                self.db.upsert_place(p)
+                continue
+            if not self.db.needs_details(p["place_id"]):
                 continue
             if not self.pacer.detail_allowed():
                 if not self._detail_cap_logged:

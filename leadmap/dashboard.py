@@ -68,12 +68,12 @@ class _Failures:
 
 def collect(cfg, db) -> dict:
     tz = ZoneInfo(cfg["pacing"]["timezone"])
-    city = db.get_state("hub_city") or cfg["city"]
+    job = db.get_state("hub_job") or {"city": cfg["city"], "segment": cfg["search"]["segment"]}
     cities = []
-    for (c,) in db.conn.execute("SELECT DISTINCT city FROM tiles ORDER BY city"):
-        tc = db.tile_counts(c)
-        pc = db.place_counts(c)
-        cities.append({"city": c, "tiles": tc, "tiles_total": sum(tc.values()),
+    for c, seg in db.jobs():
+        tc = db.tile_counts(c, seg)
+        pc = db.place_counts(c, seg)
+        cities.append({"city": c, "segment": seg, "tiles": tc, "tiles_total": sum(tc.values()),
                        "places": pc["total"], "phones": pc["phones"], "mobiles": pc["mobiles"]})
     recent = [dict(r) for r in db.conn.execute(
         "SELECT id, status, results_count, attempts, last_error, updated_at FROM tiles "
@@ -102,7 +102,7 @@ def collect(cfg, db) -> dict:
                       if not p.name.endswith(".tmp.xlsx")), reverse=True)[:15]
     return {
         "now": datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S"),
-        "service": active, "city": city, "cities": cities,
+        "service": active, "city": job["city"], "segment": job["segment"], "cities": cities,
         "new_today": new_today[0], "new_today_mobile": new_today[1],
         "backoff": {"level": bo.get("level", 0), "until": bo.get("until"),
                     "reason": bo.get("reason"), "remaining_s": backoff_remaining(db)},
@@ -211,13 +211,27 @@ def make_handler(cfg, user, password, reloader, failures):
             hub = HubDB(hub_path)
             try:
                 op = data.get("op")
-                if op == "add_cities":
+                if op == "add_jobs":
                     names = data.get("names") or []
                     if isinstance(names, str):
                         names = names.splitlines()
-                    return {"added": hub.add_cities([n for n in names if isinstance(n, str)][:500])}
-                if op == "city":
-                    hub.city_action(str(data.get("name")), str(data.get("action")))
+                    segments = data.get("segments") or []
+                    if not isinstance(segments, list) or not segments:
+                        raise HubError(400, "choose at least one segment")
+                    added = {}
+                    for seg in segments[:50]:
+                        added[str(seg)] = hub.add_jobs([n for n in names if isinstance(n, str)][:500], str(seg))
+                    return {"added": added}
+                if op == "job":
+                    hub.job_action(int(data.get("id") or 0), str(data.get("action")))
+                    return {"ok": True}
+                if op == "set_segment":
+                    kws = data.get("keywords") or []
+                    if isinstance(kws, str):
+                        kws = kws.replace("،", "\n").replace(",", "\n").splitlines()
+                    return {"keywords": hub.set_segment(str(data.get("name") or ""), kws)}
+                if op == "delete_segment":
+                    hub.delete_segment(str(data.get("name") or ""))
                     return {"ok": True}
                 if op == "add_worker":
                     return {"token": hub.add_worker(str(data.get("name") or ""))}

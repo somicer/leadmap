@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>گزارش جمع‌آوری املاک</title>
+<title>گزارش جمع‌آوری کسب‌وکارها</title>
 <style>
 :root {
   --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
@@ -60,7 +60,7 @@ ul.files li { padding: 5px 0; border-bottom: 1px solid var(--line); }
 <main>
   <header>
     <div>
-      <h1>گزارش جمع‌آوری املاک از گوگل‌مپ</h1>
+      <h1>گزارش جمع‌آوری کسب‌وکارها از گوگل‌مپ</h1>
       <div class="muted">به‌روزرسانی خودکار هر ۳۰ ثانیه · <span id="now">…</span></div>
     </div>
     <div id="service"></div>
@@ -69,7 +69,7 @@ ul.files li { padding: 5px 0; border-bottom: 1px solid var(--line); }
   <div id="alert"></div>
 
   <div class="kpis">
-    <div class="kpi"><div class="l">شهر فعلی</div><div class="v" id="k-city">…</div></div>
+    <div class="kpi"><div class="l">کار فعلی (شهر / صنف)</div><div class="v" id="k-city">…</div></div>
     <div class="kpi"><div class="l">پیشرفت تایل‌ها</div><div class="v" id="k-prog">…</div></div>
     <div class="kpi"><div class="l">کل مکان‌ها (همه شهرها)</div><div class="v" id="k-places">…</div></div>
     <div class="kpi"><div class="l">شماره موبایل</div><div class="v" id="k-mob">…</div></div>
@@ -77,13 +77,13 @@ ul.files li { padding: 5px 0; border-bottom: 1px solid var(--line); }
   </div>
 
   <div class="card">
-    <h2>پیشرفت شهر فعلی</h2>
+    <h2>پیشرفت کار فعلی</h2>
     <div class="bar"><div id="bar" style="width:0"></div></div>
     <div class="muted" id="bar-txt"></div>
   </div>
 
   <div class="card">
-    <h2>شهرها</h2>
+    <h2>شهرها و صنف‌ها</h2>
     <div class="scroll"><table id="cities"></table></div>
   </div>
 
@@ -147,21 +147,22 @@ async function load() {
   }
   document.getElementById('alert').innerHTML = alert;
 
-  const cur = d.cities.find(c => c.city === d.city) || {tiles: {}, tiles_total: 0};
+  const isCur = c => c.city === d.city && c.segment === d.segment;
+  const cur = d.cities.find(isCur) || {tiles: {}, tiles_total: 0};
   const fin = (cur.tiles.done || 0) + (cur.tiles.empty || 0);
   const pct = cur.tiles_total ? fin / cur.tiles_total * 100 : 0;
-  document.getElementById('k-city').textContent = d.city;
+  document.getElementById('k-city').innerHTML = `${esc(d.city)} <span class="s">/ ${esc(d.segment)}</span>`;
   document.getElementById('k-prog').textContent = fa(pct.toFixed(1)) + '٪';
   document.getElementById('bar').style.width = pct + '%';
   document.getElementById('bar-txt').textContent =
     `${fa(fin)} از ${fa(cur.tiles_total)} تایل · ${fa(cur.tiles.pending)} در صف · ${fa(cur.tiles.failed)} ناموفق · ${fa(d.tiles_last_hour)} تایل در ساعت گذشته`;
 
   let places = 0, mobs = 0;
-  let rows = '<tr><th>شهر</th><th>پیشرفت</th><th>مکان</th><th>با تلفن</th><th>موبایل</th><th>درصد موبایل</th></tr>';
+  let rows = '<tr><th>شهر</th><th>صنف</th><th>پیشرفت</th><th>مکان</th><th>با تلفن</th><th>موبایل</th><th>درصد موبایل</th></tr>';
   for (const c of d.cities) {
     const f = (c.tiles.done || 0) + (c.tiles.empty || 0);
     places += c.places; mobs += c.mobiles;
-    rows += `<tr><td>${esc(c.city)}${c.city === d.city ? ' <span class="pill ok">فعال</span>' : ''}</td>` +
+    rows += `<tr><td>${esc(c.city)}${isCur(c) ? ' <span class="pill ok">فعال</span>' : ''}</td><td>${esc(c.segment)}</td>` +
       `<td class="num">${fa(f)} / ${fa(c.tiles_total)}</td><td class="num">${fa(c.places)}</td>` +
       `<td class="num">${fa(c.phones)}</td><td class="num">${fa(c.mobiles)}</td>` +
       `<td class="num">${c.places ? fa(Math.round(c.mobiles / c.places * 100)) + '٪' : '-'}</td></tr>`;

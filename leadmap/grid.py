@@ -70,8 +70,8 @@ def utm_epsg(lng: float, lat: float) -> int:
     return (32600 if lat >= 0 else 32700) + zone
 
 
-def build_tiles(poly, city: str, tile_size_m: float, zoom: int) -> list[dict]:
-    """Square tiles intersecting `poly` (lng/lat), in snake order."""
+def build_tiles(poly, city: str, tile_size_m: float, zoom: int, segment: str = "") -> list[dict]:
+    """Square tiles intersecting `poly` (lng/lat), in snake order; one set per (segment, city)."""
     c = poly.centroid
     epsg = utm_epsg(c.x, c.y)
     fwd = Transformer.from_crs(4326, epsg, always_xy=True).transform
@@ -94,7 +94,7 @@ def build_tiles(poly, city: str, tile_size_m: float, zoom: int) -> list[dict]:
             w, s, e, n = geo.bounds
             cx, cy = inv(x0 + tile_size_m / 2, y0 + tile_size_m / 2)
             tiles.append({
-                "id": f"{city}:{row}:{col}", "city": city, "seq": len(tiles),
+                "id": f"{segment}/{city}:{row}:{col}", "city": city, "segment": segment, "seq": len(tiles),
                 "row": row, "col": col, "lat": round(cy, 6), "lng": round(cx, 6), "zoom": zoom,
                 "min_lat": s, "min_lng": w, "max_lat": n, "max_lng": e,
             })
@@ -116,11 +116,11 @@ def load_city_polygon(city: str, cfg):
         return None
 
 
-def init_city(cfg, db, city: str) -> dict:
-    """Fetch the boundary and insert the city's tiles (idempotent). Used by `init` and hub workers."""
+def init_city(cfg, db, city: str, segment: str) -> dict:
+    """Fetch the boundary and insert the tiles of (city, segment) (idempotent). Used by `init` and hub workers."""
     result = fetch_boundary(city, cfg)
     poly, fallback = boundary_polygon(result)
-    tiles = build_tiles(poly, city, cfg["grid"]["tile_size_m"], cfg["grid"]["zoom"])
+    tiles = build_tiles(poly, city, cfg["grid"]["tile_size_m"], cfg["grid"]["zoom"], segment)
     added = db.insert_tiles(tiles)
-    db.event("init", f"{city}: {len(tiles)} tiles, {added} new, bbox_fallback={fallback}")
+    db.event("init", f"{city} / {segment}: {len(tiles)} tiles, {added} new, bbox_fallback={fallback}")
     return {"result": result, "poly": poly, "fallback": fallback, "tiles": len(tiles), "added": added}

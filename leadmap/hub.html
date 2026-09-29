@@ -60,6 +60,13 @@ textarea, input[type=text] { font: inherit; width: 100%; background: var(--bg); 
 textarea { min-height: 84px; resize: vertical; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .row input[type=text] { flex: 1; min-width: 160px; width: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chips label { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; cursor: pointer; font-size: 14px; user-select: none; }
+.chips input { margin-inline-end: 6px; }
+.kw { display: inline-block; background: var(--code); border-radius: 6px; padding: 1px 8px; margin: 2px; font-size: 13px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+label.f { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 2px 9px; font-size: 13px; }
 button.danger { background: transparent; color: var(--bad); border: 1px solid var(--line); padding: 2px 9px; font-size: 13px; }
 .act { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -73,8 +80,8 @@ nav a { margin-inline-start: 12px; font-size: 14px; }
 <main>
   <header>
     <div>
-      <h1>پنل مرکزی — تقسیم شهرها بین سرورها</h1>
-      <div class="muted">هر سرور یک شهر از صف برمی‌دارد، تمامش می‌کند و بعدی را برمی‌دارد · به‌روزرسانی هر ۲۰ ثانیه</div>
+      <h1>پنل مرکزی — تقسیم کار بین سرورها</h1>
+      <div class="muted">هر کار = یک شهر × یک صنف. هر سرور یک کار از صف برمی‌دارد، تمامش می‌کند و بعدی را برمی‌دارد · به‌روزرسانی هر ۲۰ ثانیه</div>
     </div>
     <nav><a href="./">داشبورد همین سرور</a></nav>
   </header>
@@ -83,7 +90,7 @@ nav a { margin-inline-start: 12px; font-size: 14px; }
 
   <div class="kpis">
     <div class="kpi"><div class="l">سرورهای آنلاین</div><div class="v" id="k-w">…</div></div>
-    <div class="kpi"><div class="l">شهرهای در حال کار</div><div class="v" id="k-active">…</div></div>
+    <div class="kpi"><div class="l">کارهای در حال انجام</div><div class="v" id="k-active">…</div></div>
     <div class="kpi"><div class="l">در صف</div><div class="v" id="k-queued">…</div></div>
     <div class="kpi"><div class="l">تمام‌شده</div><div class="v" id="k-done">…</div></div>
     <div class="kpi"><div class="l">کل مکان‌ها (همه سرورها)</div><div class="v" id="k-places">…</div></div>
@@ -91,11 +98,30 @@ nav a { margin-inline-start: 12px; font-size: 14px; }
   </div>
 
   <div class="card">
-    <h2>شهرها</h2>
-    <div class="scroll"><table id="cities"></table></div>
+    <h2>صنف‌ها و کلیدواژه‌ها</h2>
+    <div class="scroll"><table id="segments"></table></div>
+    <div class="grid2" style="margin-top:14px">
+      <div>
+        <label class="f" for="seg-name">نام صنف</label>
+        <input type="text" id="seg-name" placeholder="مثلاً: میوه فروشی" maxlength="100">
+      </div>
+      <div>
+        <label class="f" for="seg-kw">کلیدواژه‌های جستجو در گوگل‌مپ (هر خط یا با ویرگول جدا)</label>
+        <textarea id="seg-kw" placeholder="میوه فروشی&#10;میوه&#10;میوه فروش&#10;تره بار"></textarea>
+      </div>
+    </div>
+    <div class="row"><button id="seg-save">ذخیره‌ی صنف</button><span class="muted" id="seg-msg">برای ویرایش، روی «ویرایش» کنار هر صنف بزنید؛ سرورهای در حال کار کلیدواژه‌های جدید را از خانه‌ی بعدی استفاده می‌کنند.</span></div>
+  </div>
+
+  <div class="card">
+    <h2>صف کارها</h2>
+    <div class="scroll"><table id="jobs"></table></div>
     <div style="margin-top:14px">
-      <textarea id="new-cities" placeholder="هر خط یک شهر، به فارسی و همان‌طور که در OpenStreetMap آمده، مثلاً:&#10;شیراز&#10;مشهد"></textarea>
-      <div class="row"><button id="add-cities">افزودن به صف</button><span class="muted" id="add-msg"></span></div>
+      <label class="f">صنف (یک یا چند)</label>
+      <div class="chips" id="seg-pick"></div>
+      <label class="f" for="new-cities">شهرها — هر خط یک شهر، به فارسی و همان‌طور که در OpenStreetMap آمده</label>
+      <textarea id="new-cities" placeholder="شیراز&#10;مشهد"></textarea>
+      <div class="row"><button id="add-jobs">افزودن به صف</button><span class="muted" id="add-msg"></span></div>
     </div>
   </div>
 
@@ -124,13 +150,15 @@ nav a { margin-inline-start: 12px; font-size: 14px; }
 <script>
 const fa = n => Number(n || 0).toLocaleString('fa-IR');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const js = v => esc(JSON.stringify(v));  // HTML-escaped JSON: safe inside onclick attributes
 const localTime = iso => iso ? new Date(iso).toLocaleString('fa-IR', {timeZone: 'Asia/Tehran', hour12: false}) : '-';
-const CITY = {queued: ['در صف', 'warn'], active: ['در حال کار', 'ok'], done: ['تمام شد', 'ok'], error: ['خطا', 'bad']};
-const PHASE = {scraping: 'در حال جمع‌آوری', pause: 'استراحت بین تایل‌ها', backoff: 'محدودیت گوگل (صبر)',
+const STATUS = {queued: ['در صف', 'warn'], active: ['در حال انجام', 'ok'], done: ['تمام شد', 'ok'], error: ['خطا', 'bad']};
+const PHASE = {scraping: 'در حال جمع‌آوری', pause: 'استراحت بین خانه‌ها', backoff: 'محدودیت گوگل (صبر)',
   'outside active hours': 'خارج از ساعت کاری', 'hourly cap': 'سقف ساعتی', paused: 'متوقف از پنل',
   'idle (queue empty)': 'بیکار (صف خالی)', 'building grid': 'ساخت شبکه', 'hub unreachable': 'پنل در دسترس نیست',
-  'finishing city': 'پایان شهر', starting: 'شروع'};
+  finishing: 'پایان کار', starting: 'شروع', installed: 'تازه نصب‌شده'};
 let state = null;
+const picked = new Set();
 
 function ago(s) {
   if (s == null) return 'هرگز';
@@ -154,25 +182,32 @@ async function act(body, confirmMsg) {
   load();
 }
 
-function cityActions(c, qi, qn) {  // qi: position among queued cities, qn: how many are queued
-  const q = esc(JSON.stringify(c.name));  // HTML-escaped JSON: safe inside the onclick attribute
+function editSegment(name) {
+  const s = state.segments.find(x => x.name === name);
+  if (!s) return;
+  document.getElementById('seg-name').value = s.name;
+  document.getElementById('seg-kw').value = s.queries.join('\n');
+  document.getElementById('seg-name').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function jobActions(j, qi, qn) {  // qi: position among queued jobs, qn: how many are queued
   const b = [];
-  if (c.status === 'queued') {
-    if (qi > 0) b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'up'})" title="بالا">▲</button>`);
-    if (qi < qn - 1) b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'down'})" title="پایین">▼</button>`);
-    if (qi > 0) b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'top'})">اول صف</button>`);
+  if (j.status === 'queued') {
+    if (qi > 0) b.push(`<button class="ghost" onclick="act({op:'job',id:${j.id},action:'up'})" title="بالا">▲</button>`);
+    if (qi < qn - 1) b.push(`<button class="ghost" onclick="act({op:'job',id:${j.id},action:'down'})" title="پایین">▼</button>`);
+    if (qi > 0) b.push(`<button class="ghost" onclick="act({op:'job',id:${j.id},action:'top'})">اول صف</button>`);
   }
-  if (c.status === 'active')
-    b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'release'}, 'شهر از این سرور گرفته شود و به صف برگردد؟ (سرور بعدی از اول شروع می‌کند)')">برگرداندن به صف</button>`);
-  if (c.status === 'done' || c.status === 'error')
-    b.push(`<button class="ghost" onclick="act({op:'city',name:${q},action:'requeue'})">صف دوباره</button>`);
-  b.push(`<button class="danger" onclick="act({op:'city',name:${q},action:'delete'}, 'حذف از لیست؟ (مکان‌های جمع‌شده حذف نمی‌شوند)')">حذف</button>`);
+  if (j.status === 'active')
+    b.push(`<button class="ghost" onclick="act({op:'job',id:${j.id},action:'release'}, 'این کار از سرورش گرفته شود و به صف برگردد؟ (سرور بعدی از اول شروع می‌کند)')">برگرداندن به صف</button>`);
+  if (j.status === 'done' || j.status === 'error')
+    b.push(`<button class="ghost" onclick="act({op:'job',id:${j.id},action:'requeue'})">صف دوباره</button>`);
+  b.push(`<button class="danger" onclick="act({op:'job',id:${j.id},action:'delete'}, 'حذف از لیست؟ (مکان‌های جمع‌شده حذف نمی‌شوند)')">حذف</button>`);
   return b.join('');
 }
 
 function render(d) {
   const online = d.workers.filter(w => w.online);
-  const by = s => d.cities.filter(c => c.status === s).length;
+  const by = s => d.jobs.filter(j => j.status === s).length;
   document.getElementById('k-w').textContent = fa(online.length) + ' / ' + fa(d.workers.length);
   document.getElementById('k-active').textContent = fa(by('active'));
   document.getElementById('k-queued').textContent = fa(by('queued'));
@@ -181,47 +216,67 @@ function render(d) {
   document.getElementById('k-mob').textContent = fa(d.totals.mobiles);
 
   let al = '';
-  const idle = online.filter(w => !w.city && !w.paused).length;
-  if (idle && !by('queued')) al += `<div class="alert warn">${fa(idle)} سرور بیکار است و صف خالی است؛ شهر جدید اضافه کنید.</div>`;
-  const off = d.workers.filter(w => !w.online && w.city);
-  if (off.length) al += `<div class="alert bad">سرور ${off.map(w => esc(w.name)).join('، ')} بیش از ۱۰ دقیقه خبری نداده ولی شهر دستش است. اگر خاموش شده، شهرش را «برگرداندن به صف» کنید.</div>`;
+  const idle = online.filter(w => !w.job && !w.paused).length;
+  if (idle && !by('queued')) al += `<div class="alert warn">${fa(idle)} سرور بیکار است و صف خالی است؛ کار جدید اضافه کنید.</div>`;
+  const off = d.workers.filter(w => !w.online && w.job);
+  if (off.length) al += `<div class="alert bad">سرور ${off.map(w => esc(w.name)).join('، ')} بیش از ۱۰ دقیقه خبری نداده ولی کاری دستش است. اگر خاموش شده، کارش را «برگرداندن به صف» کنید.</div>`;
   document.getElementById('alert').innerHTML = al;
 
-  let rows = '<tr><th>#</th><th>شهر</th><th>وضعیت</th><th>سرور</th><th>پیشرفت تایل‌ها</th><th>مکان</th><th>موبایل</th><th></th></tr>';
+  // segments
+  let rows = '<tr><th>صنف</th><th>کلیدواژه‌ها</th><th>مکان</th><th>موبایل</th><th></th></tr>';
+  for (const s of d.segments) {
+    rows += `<tr><td>${esc(s.name)}</td><td style="white-space:normal">${s.queries.map(q => `<span class="kw">${esc(q)}</span>`).join('')}</td>` +
+      `<td class="num">${fa(s.places)}</td><td class="num">${fa(s.mobiles)}</td>` +
+      `<td><div class="act"><button class="ghost" onclick="editSegment(${js(s.name)})">ویرایش</button>` +
+      `<button class="danger" onclick="act({op:'delete_segment',name:${js(s.name)}}, 'صنف حذف شود؟ (فقط وقتی کاری از آن در صف نیست)')">حذف</button></div></td></tr>`;
+  }
+  if (!d.segments.length) rows += '<tr><td colspan="5" class="muted">هنوز صنفی تعریف نشده؛ پایین یکی بسازید.</td></tr>';
+  document.getElementById('segments').innerHTML = rows;
+
+  const pick = document.getElementById('seg-pick');
+  for (const n of [...picked]) if (!d.segments.some(s => s.name === n)) picked.delete(n);
+  if (!picked.size && d.segments.length === 1) picked.add(d.segments[0].name);
+  pick.innerHTML = d.segments.map(s => `<label><input type="checkbox" value="${esc(s.name)}"${picked.has(s.name) ? ' checked' : ''}>${esc(s.name)}</label>`).join('')
+    || '<span class="muted">اول یک صنف بسازید.</span>';
+  pick.querySelectorAll('input').forEach(i => i.onchange = () => i.checked ? picked.add(i.value) : picked.delete(i.value));
+
+  // jobs
+  rows = '<tr><th>#</th><th>شهر</th><th>صنف</th><th>وضعیت</th><th>سرور</th><th>پیشرفت خانه‌ها</th><th>مکان</th><th>موبایل</th><th></th></tr>';
   let qn = 0;
   const queued = by('queued');
-  d.cities.forEach(c => {
-    const t = c.tiles || {};
+  for (const j of d.jobs) {
+    const t = j.tiles || {};
     const total = Object.values(t).reduce((a, b) => a + b, 0);
     const fin = (t.done || 0) + (t.empty || 0);
-    const [label, cls] = CITY[c.status] || [c.status, 'warn'];
+    const [label, cls] = STATUS[j.status] || [j.status, 'warn'];
     const prog = total ? `${fa(fin)} / ${fa(total)}${t.failed ? ` <span class="muted">(${fa(t.failed)} ناموفق)</span>` : ''}` +
       `<div class="mini"><div style="width:${fin / total * 100}%"></div></div>` : '<span class="muted">-</span>';
-    const qi = c.status === 'queued' ? qn++ : -1;
-    rows += `<tr><td class="num muted">${qi >= 0 ? fa(qi + 1) : ''}</td><td>${esc(c.name)}</td>` +
-      `<td><span class="pill ${cls}">${label}</span></td><td>${esc(c.worker || '-')}</td>` +
-      `<td class="num">${prog}</td><td class="num">${fa(c.places)}</td><td class="num">${fa(c.mobiles)}</td>` +
-      `<td><div class="act">${cityActions(c, qi, queued)}</div></td></tr>` +
-      (c.last_error ? `<tr><td></td><td colspan="7" class="err">${esc(c.last_error)}</td></tr>` : '');
-  });
-  if (!d.cities.length) rows += '<tr><td colspan="8" class="muted">هنوز شهری در صف نیست.</td></tr>';
-  document.getElementById('cities').innerHTML = rows;
+    const qi = j.status === 'queued' ? qn++ : -1;
+    rows += `<tr><td class="num muted">${qi >= 0 ? fa(qi + 1) : ''}</td><td>${esc(j.city)}</td><td>${esc(j.segment)}</td>` +
+      `<td><span class="pill ${cls}">${label}</span></td><td>${esc(j.worker || '-')}</td>` +
+      `<td class="num">${prog}</td><td class="num">${fa(j.places)}</td><td class="num">${fa(j.mobiles)}</td>` +
+      `<td><div class="act">${jobActions(j, qi, queued)}</div></td></tr>` +
+      (j.last_error ? `<tr><td></td><td colspan="8" class="err">${esc(j.last_error)}</td></tr>` : '');
+  }
+  if (!d.jobs.length) rows += '<tr><td colspan="9" class="muted">صف خالی است.</td></tr>';
+  document.getElementById('jobs').innerHTML = rows;
 
-  rows = '<tr><th>سرور</th><th>وضعیت</th><th>شهر</th><th>کار فعلی</th><th>آخرین تماس</th><th>مکان ارسالی</th><th></th></tr>';
+  // workers
+  rows = '<tr><th>سرور</th><th>وضعیت</th><th>کار</th><th>الان</th><th>آخرین تماس</th><th>مکان ارسالی</th><th></th></tr>';
   for (const w of d.workers) {
     const r = w.report || {};
     const st = w.paused ? ['متوقف', 'warn'] : w.online ? ['آنلاین', 'ok'] : ['آفلاین', 'bad'];
-    let job = PHASE[r.phase] || r.phase || '-';
-    if (r.tile) job += ` <bdi class="muted">${esc(r.tile)}</bdi>`;
-    if (r.backoff && r.backoff.startsWith('ACTIVE')) job += `<div class="err">${esc(r.backoff)}</div>`;
-    if (r.sync_backlog) job += `<div class="muted">${fa(r.sync_backlog)} مکان در انتظار ارسال</div>`;
+    let now = PHASE[r.phase] || r.phase || '-';
+    if (r.tile) now += ` <bdi class="muted">${esc(r.tile)}</bdi>`;
+    if (r.backoff && r.backoff.startsWith('ACTIVE')) now += `<div class="err">${esc(r.backoff)}</div>`;
+    if (r.sync_backlog) now += `<div class="muted">${fa(r.sync_backlog)} مکان در انتظار ارسال</div>`;
     const btn = w.paused
       ? `<button class="ghost" onclick="act({op:'worker',id:${w.id},action:'resume'})">ادامه</button>`
       : `<button class="ghost" onclick="act({op:'worker',id:${w.id},action:'pause'})">توقف</button>`;
     rows += `<tr><td>${esc(w.name)}<div class="muted"><bdi>${esc(w.hostname || '')} ${esc(w.ip || '')}</bdi></div></td>` +
-      `<td><span class="pill ${st[1]}">${st[0]}</span></td><td>${esc(w.city || '-')}</td>` +
-      `<td style="white-space:normal">${job}</td><td class="muted">${ago(w.age_s)}</td><td class="num">${fa(w.places)}</td>` +
-      `<td><div class="act">${btn}<button class="danger" onclick="act({op:'worker',id:${w.id},action:'revoke'}, 'توکن این سرور باطل شود؟ شهرش به صف برمی‌گردد.')">حذف</button></div></td></tr>`;
+      `<td><span class="pill ${st[1]}">${st[0]}</span></td><td>${w.job ? `${esc(w.job.city)} / ${esc(w.job.segment)}` : '-'}</td>` +
+      `<td style="white-space:normal">${now}</td><td class="muted">${ago(w.age_s)}</td><td class="num">${fa(w.places)}</td>` +
+      `<td><div class="act">${btn}<button class="danger" onclick="act({op:'worker',id:${w.id},action:'revoke'}, 'توکن این سرور باطل شود؟ کارش به صف برمی‌گردد.')">حذف</button></div></td></tr>`;
   }
   if (!d.workers.length) rows += '<tr><td colspan="7" class="muted">هنوز سروری تعریف نشده؛ پایین یک توکن بسازید.</td></tr>';
   document.getElementById('workers').innerHTML = rows;
@@ -230,7 +285,8 @@ function render(d) {
     ? d.exports.map(f => `<li><a href="hub-exports/${encodeURIComponent(f)}"><bdi dir="ltr">${esc(f)}</bdi></a></li>`).join('')
     : '<li class="muted">هنوز فایلی نیست (هر شب خودکار ساخته می‌شود)</li>';
 
-  const EV = {assign: ['واگذاری', 'ok'], done: ['پایان شهر', 'ok'], error: ['خطا', 'bad'], export: ['خروجی', 'ok'], city: ['شهر', 'warn'], worker: ['سرور', 'warn']};
+  const EV = {assign: ['واگذاری', 'ok'], done: ['پایان کار', 'ok'], error: ['خطا', 'bad'], export: ['خروجی', 'ok'],
+    job: ['صف', 'warn'], segment: ['صنف', 'warn'], worker: ['سرور', 'warn']};
   rows = '<tr><th>زمان</th><th>نوع</th><th>جزئیات</th></tr>';
   for (const e of d.events) {
     const [label, cls] = EV[e.type] || [e.type, 'warn'];
@@ -250,13 +306,28 @@ async function load() {
   }
 }
 
-document.getElementById('add-cities').onclick = async () => {
+document.getElementById('seg-save').onclick = async () => {
+  const name = document.getElementById('seg-name').value.trim(), m = document.getElementById('seg-msg');
+  const keywords = document.getElementById('seg-kw').value;
+  if (!name || !keywords.trim()) { m.textContent = 'نام و حداقل یک کلیدواژه لازم است'; return; }
+  try {
+    const d = await api({op: 'set_segment', name, keywords});
+    m.textContent = `صنف «${name}» با ${fa(d.keywords.length)} کلیدواژه ذخیره شد ✓`;
+    picked.add(name);
+    document.getElementById('seg-name').value = ''; document.getElementById('seg-kw').value = '';
+  } catch (e) { m.textContent = 'خطا: ' + e.message; }
+  load();
+};
+
+document.getElementById('add-jobs').onclick = async () => {
   const ta = document.getElementById('new-cities'), m = document.getElementById('add-msg');
   const names = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!names.length) return;
+  if (!picked.size) { m.textContent = 'حداقل یک صنف را انتخاب کنید'; return; }
+  if (!names.length) { m.textContent = 'حداقل یک شهر بنویسید'; return; }
   try {
-    const d = await api({op: 'add_cities', names});
-    m.textContent = d.added.length ? `${fa(d.added.length)} شهر اضافه شد ✓` : 'همه از قبل در لیست بودند';
+    const d = await api({op: 'add_jobs', names, segments: [...picked]});
+    const n = Object.values(d.added).reduce((a, l) => a + l.length, 0);
+    m.textContent = n ? `${fa(n)} کار به صف اضافه شد ✓` : 'همه از قبل در صف بودند';
     ta.value = '';
   } catch (e) { m.textContent = 'خطا: ' + e.message; }
   load();

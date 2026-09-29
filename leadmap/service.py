@@ -77,22 +77,30 @@ def summarize(tile, stats) -> str:
 
 
 class Service:
-    def __init__(self, cfg, db, city: str | None, headed: bool = False, hub=None):
-        """`hub` (HubClient): take cities from the central queue instead of a fixed `city`."""
+    def __init__(self, cfg, db, job: dict | None, headed: bool = False, hub=None):
+        """`job` = {"city", "segment", "queries"}; `hub` (HubClient): take jobs from the central queue instead."""
         self.cfg = cfg
         self.db = db
-        self.city = city
+        self.job = job
         self.hub = hub
         self.stop = threading.Event()
         self.browser = Browser(cfg, headed=headed)
         self.pacer = Pacer(cfg, db, self.stop, tick=self.tick)
-        self.city_poly = load_city_polygon(city, cfg) if city else None
+        self.city_poly = load_city_polygon(job["city"], cfg) if job else None
         self.empty_streak: list[str] = []
         self.phase = "starting"
         self.current_tile = None
         self.hub_assignment = _UNSET   # last assignment the hub reported
         self.hub_paused = False
         self._hub_warned = 0.0
+
+    @property
+    def city(self):
+        return self.job["city"] if self.job else None
+
+    @property
+    def segment(self):
+        return self.job["segment"] if self.job else None
 
     # --- lifecycle -----------------------------------------------------------
     def _on_signal(self, signum, _frame):
@@ -105,12 +113,14 @@ class Service:
         if self.hub:
             log.info("Service started in hub mode (%s)", self.hub.url)
             self.db.event("start", f"hub={self.hub.url}")
-        elif not sum(self.db.tile_counts(self.city).values()):
-            log.error("No tiles for %s — run: python main.py init --city %s", self.city, self.city)
+        elif not sum(self.db.tile_counts(self.city, self.segment).values()):
+            log.error("No tiles for %s / %s — run: python main.py init --city %s --segment %s",
+                      self.city, self.segment, self.city, self.segment)
             return
         else:
-            self.db.event("start", f"city={self.city}")
-            log.info("Service started for %s. %s", self.city, self._progress())
+            self.db.event("start", f"city={self.city} segment={self.segment}")
+            log.info("Service started for %s / %s %s. %s", self.city, self.segment, self.job["queries"],
+                     self._progress())
         try:
             while not self.stop.is_set():
                 self.loop_once()
@@ -136,11 +146,11 @@ class Service:
             self.browser.close()
             self.pacer.wait_active_hours()
             return
-        tile = self.db.next_tile(self.city)
+        tile = self.db.next_tile(self.city, self.segment)
         if tile is None:
             self.browser.close()
             if self.hub:
-                self.finish_city()
+                self.finish_job()
                 return
             log.info("No pending tiles. %s", self._progress())
             self.pacer.sleep(3600, "all tiles processed; idling (daily export still runs)")
@@ -160,50 +170,58 @@ class Service:
 
     # --- hub mode ------------------------------------------------------------
     def hub_ready(self) -> bool:
-        """Make sure we hold a city from the hub; False means "slept instead, loop again"."""
+        """Make sure we hold a job from the hub; False means "slept instead, loop again"."""
         if self.hub_paused:
             self.phase = "paused"
             self.browser.close()
             self.pacer.sleep(300, "paused from the hub panel")
             return False
-        if self.city is not None and self.hub_assignment not in (_UNSET, self.city):
-            log.warning("hub: %s was taken off this server (assignment now: %s)",
-                        self.city, self.hub_assignment or "none")
-            self.db.event("hub", f"dropped {self.city}")
-            self.set_city(None)
-        if self.city is not None:
+        if self.job is not None and self.hub_assignment is not _UNSET:
+            a = self.hub_assignment
+            if not a or (a["city"], a["segment"]) != (self.city, self.segment):
+                log.warning("hub: %s / %s was taken off this server (assignment now: %s)",
+                            self.city, self.segment, a and f"{a['city']} / {a['segment']}" or "none")
+                self.db.event("hub", f"dropped {self.city} / {self.segment}")
+                self.set_job(None)
+            elif a.get("queries") and a["queries"] != self.job["queries"]:
+                log.info("hub: keywords of %s changed: %s", self.segment, a["queries"])
+                self.set_job({**self.job, "queries": a["queries"]}, self.city_poly)
+        if self.job is not None:
             return True
         self.browser.close()
         try:
             reply = self.hub.claim()
         except HubUnavailable as e:
-            cached = self.db.get_state("hub_city")
+            cached = self.db.get_state("hub_job")
             if cached:
-                log.warning("hub unreachable (%s); continuing with %s", e, cached)
-                return self.start_city(cached)
+                log.warning("hub unreachable (%s); continuing with %s / %s", e, cached["city"], cached["segment"])
+                return self.start_job(cached)
             log.warning("hub unreachable (%s); retrying in 5 min", e)
             self.phase = "hub unreachable"
             self.pacer.sleep(300, "hub unreachable")
             return False
-        self.hub_assignment = reply.get("city")
+        job = reply.get("job")
+        self.hub_assignment = job
         if reply.get("paused"):
             self.hub_paused = True
             return False
-        if not reply.get("city"):
+        if not job:
             self.phase = "idle (queue empty)"
             self.pacer.sleep(self.cfg["hub"].get("idle_poll_s", 900), "hub queue empty")
             return False
-        return self.start_city(reply["city"])
+        return self.start_job(job)
 
-    def start_city(self, city: str) -> bool:
-        resuming = city == self.db.get_state("hub_city")
+    def start_job(self, job: dict) -> bool:
+        city, segment = job["city"], job["segment"]
+        cached = self.db.get_state("hub_job") or {}
+        resuming = (cached.get("city"), cached.get("segment")) == (city, segment)
         self.phase = "building grid"
         try:
-            r = init_city(self.cfg, self.db, city)
+            r = init_city(self.cfg, self.db, city, segment)
         except RuntimeError as e:  # Nominatim knows no such place: the city itself is bad
             log.error("hub: cannot build grid for %s: %s", city, e)
             try:
-                self.hub.fail(city, str(e))
+                self.hub.fail(city, segment, str(e))
             except HubUnavailable as he:
                 log.warning("hub: could not report failure: %s", he)
             self.pacer.sleep(60, "city rejected")
@@ -213,37 +231,37 @@ class Service:
             self.pacer.sleep(600, "grid retry")
             return False
         if not resuming:
-            n = self.db.reset_failed(city)  # a re-queued city retries its failed tiles
+            n = self.db.reset_failed(city, segment)  # a re-queued job retries its failed tiles
             if n:
-                log.info("hub: %d failed tiles of %s reset to pending", n, city)
-        self.set_city(city, r["poly"])
-        log.info("hub: working on %s (%d tiles, %d new). %s",
-                 city, r["tiles"], r["added"], self._progress())
-        self.db.event("hub", f"{'resumed' if resuming else 'claimed'} {city}")
+                log.info("hub: %d failed tiles of %s / %s reset to pending", n, city, segment)
+        self.set_job({"city": city, "segment": segment, "queries": list(job["queries"])}, r["poly"])
+        log.info("hub: working on %s / %s %s (%d tiles, %d new). %s",
+                 city, segment, job["queries"], r["tiles"], r["added"], self._progress())
+        self.db.event("hub", f"{'resumed' if resuming else 'claimed'} {city} / {segment}")
         self.hub_heartbeat(force=True)
         return True
 
-    def set_city(self, city, poly=None):
-        self.city, self.city_poly = city, poly
+    def set_job(self, job, poly=None):
+        self.job, self.city_poly = job, poly
         self.empty_streak = []
-        self.db.set_state("hub_city", city)
+        self.db.set_state("hub_job", job)
 
-    def finish_city(self):
-        self.phase = "finishing city"
+    def finish_job(self):
+        self.phase = "finishing"
         try:
-            self.hub.complete(self.city)
+            self.hub.complete(self.city, self.segment)
         except HubUnavailable as e:
-            log.warning("hub: could not report %s finished (%s); retrying in 5 min", self.city, e)
+            log.warning("hub: could not report %s / %s finished (%s); retrying in 5 min", self.city, self.segment, e)
             self.pacer.sleep(300, "hub unreachable")
             return
-        log.info("hub: finished %s. %s", self.city, self._progress())
-        self.db.event("hub", f"finished {self.city}")
-        self.set_city(None)
+        log.info("hub: finished %s / %s. %s", self.city, self.segment, self._progress())
+        self.db.event("hub", f"finished {self.city} / {self.segment}")
+        self.set_job(None)
 
     def hub_report(self) -> dict:
-        return {"phase": self.phase, "city": self.city, "tile": self.current_tile,
+        return {"phase": self.phase, "city": self.city, "segment": self.segment, "tile": self.current_tile,
                 "backoff": backoff_status(self.db),
-                "progress": self._progress() if self.city else None,
+                "progress": self._progress() if self.job else None,
                 "tiles_last_hour": self.pacer.count_last_hour("tile_runs")}
 
     def hub_heartbeat(self, force=False):
@@ -271,7 +289,8 @@ class Service:
 
     # --- one tile ------------------------------------------------------------
     def process_tile(self, tile):
-        scraper = TileScraper(self.cfg, self.db, self.browser, self.pacer, self.city_poly)
+        scraper = TileScraper(self.cfg, self.db, self.browser, self.pacer, self.city_poly,
+                              queries=self.job["queries"])
         log.info("Tile %s (#%d) @ %.5f,%.5f — attempt %d",
                  tile["id"], tile["seq"], tile["lat"], tile["lng"], tile["attempts"] + 1)
         self.pacer.record("tile_runs")
@@ -354,8 +373,8 @@ class Service:
             self.hub_heartbeat()
 
     def _progress(self) -> str:
-        tc = self.db.tile_counts(self.city)
-        pc = self.db.place_counts(self.city)
+        tc = self.db.tile_counts(self.city, self.segment)
+        pc = self.db.place_counts(self.city, self.segment)
         total = sum(tc.values())
         finished = tc.get("done", 0) + tc.get("empty", 0)
         return (f"progress {finished}/{total} tiles (failed {tc.get('failed', 0)}), "
@@ -363,13 +382,14 @@ class Service:
 
 
 # --- test-tile -----------------------------------------------------------------
-def test_tile(cfg, db, city: str, tile_id: str | None, headed: bool = False):
+def test_tile(cfg, db, job: dict, tile_id: str | None, headed: bool = False):
+    city, segment = job["city"], job["segment"]
     poly = load_city_polygon(city, cfg)
     if tile_id:
         tile = db.get_tile(tile_id)
     else:
         c = poly.centroid
-        tile = min(db.conn.execute("SELECT * FROM tiles WHERE city=?", (city,)),
+        tile = min(db.conn.execute("SELECT * FROM tiles WHERE city=? AND segment=?", (city, segment)),
                    key=lambda t: (t["lat"] - c.y) ** 2 + (t["lng"] - c.x) ** 2, default=None)
     if tile is None:
         print("No such tile — run init first.")
@@ -383,11 +403,13 @@ def test_tile(cfg, db, city: str, tile_id: str | None, headed: bool = False):
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     pacer = Pacer(cfg, db, stop)
     browser = Browser(cfg, headed=headed)
-    print(f"Tile {tile['id']} @ {tile['lat']},{tile['lng']} z{tile['zoom']} — raw dumps → {dump_dir}")
+    print(f"Tile {tile['id']} @ {tile['lat']},{tile['lng']} z{tile['zoom']} — keywords {job['queries']}"
+          f" — raw dumps → {dump_dir}")
     t0 = time.monotonic()
     try:
         browser.start()
-        stats = TileScraper(cfg, db, browser, pacer, poly, dump_dir=dump_dir).scrape_tile(tile)
+        stats = TileScraper(cfg, db, browser, pacer, poly, dump_dir=dump_dir,
+                            queries=job["queries"]).scrape_tile(tile)
     except BlockDetected as e:
         dump_page(cfg, browser, "blocks", "block")
         db.update_tile(tile["id"], status="pending", last_error=f"block: {e}")

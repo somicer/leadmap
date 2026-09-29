@@ -1,6 +1,6 @@
 # leadmap
 
-**Google Maps lead collector for real estate agencies · جمع‌آوری لید بنگاه‌های املاک از گوگل‌مپ**
+**Google Maps lead collector for any business segment · جمع‌آوری لید هر صنفی از گوگل‌مپ**
 
 [English](#english) · [فارسی](#فارسی)
 
@@ -8,9 +8,21 @@
 
 ## English
 
-A slow, resumable, polite collector. It splits a city into tiles and searches Google Maps for
-"املاک" / "مشاور املاک" on each tile. Places go into SQLite, and an Excel export runs daily.
-A central panel can split a queue of cities across many servers.
+A slow, resumable, polite collector of business leads from Google Maps. It splits a city into tiles and, on each tile, searches the keywords of a **segment** (صنف): for example «میوه فروشی» → میوه فروشی، میوه، میوه فروش، تره بار, or «املاک» → املاک، مشاور املاک. Any trade works; you define the segments. Places go into SQLite, and an Excel export runs daily. A central panel can split a queue of jobs (city × segment) across many servers.
+
+### Segments
+
+A segment is a name plus the keywords searched on every tile. Each (city, segment) pair has its own grid and progress. A shop found under two segments is a lead in both lists; a phone found under one segment is reused for the other without opening its detail page again.
+- **Standalone server**: segments live in `config.yaml → search.segments`; `search.segment` is the default. Use `--segment` with `init`, `run`, `test-tile` and `status`.
+- **With the central panel**: segments are managed in the panel (section «صنف‌ها»). Editing keywords there reaches the busy workers on their next heartbeat.
+
+```yaml
+search:
+  segments:
+    املاک: ["املاک", "مشاور املاک"]
+    میوه فروشی: ["میوه فروشی", "میوه", "میوه فروش", "تره بار"]
+  segment: املاک
+```
 
 ### Install on a new server (one command)
 
@@ -25,6 +37,8 @@ cd /root && tar xzf leadmap-*.tgz && cd leadmap
 ./install.sh                                   # asks for city + your e-mail
 # or non-interactive:
 ./install.sh --yes --city "شیراز" --contact you@gmail.com
+# another segment (added to config.yaml and made the default):
+./install.sh --yes --city "شیراز" --segment "میوه فروشی" --keywords "میوه فروشی,میوه,میوه فروش,تره بار" --contact you@gmail.com
 # with a real domain certificate for the dashboard:
 ./install.sh --city "شیراز" --contact you@gmail.com --domain my.domain.com \
              --cert /path/fullchain.pem --key /path/privkey.pem
@@ -34,28 +48,29 @@ The installer:
 - installs system packages and Python ≥ 3.11 (via uv on older distros such as Ubuntu 22.04)
 - installs the pinned `requirements.txt` and Chromium, then runs the tests
 - writes `config.yaml` with a random dashboard password
-- builds the city grid
+- builds the grid for the city and segment
 - installs and starts both systemd services
 
 It prints the dashboard URL and login at the end. Without `--cert`, it makes a self-signed certificate, and the browser warns once. It is safe to re-run: the config, database and profile are kept, and `--reconfigure` rewrites the config. Run `./install.sh --help` for all options.
 
-**Use a real e-mail for `--contact`.** OpenStreetMap returns 403 for fake or example addresses. **Run each city on one server only.** To split cities across servers automatically, use the central panel (below).
+**Use a real e-mail for `--contact`.** OpenStreetMap returns 403 for fake or example addresses. **Run each (city, segment) on one server only.** To split the work across servers automatically, use the central panel (below).
 
 All settings are in `config.yaml`: paths, grid, queries, pacing, blocks/backoff, retries and export time.
 
-### Central panel: many servers, one queue of cities
+### Central panel: many servers, one queue of jobs
 
 One server runs the **hub**, a page at `https://<dashboard host>:8880/hub` with the same login as the dashboard. It works like this:
-- You add cities to a queue there. Each worker server claims one city, builds that city's grid, scrapes it and reports it finished. Then it claims the next city in the queue.
-- Workers report progress and upload new places in a heartbeat every 60 s. The hub keeps a merged copy of all places in `data/hub.db`, deduplicated by place id. Its Excel files go to `exports/hub/`: `all_leads.xlsx` with a city column, one `city_<name>.xlsx` per city, and a daily `leads_YYYY-MM-DD.xlsx`. The daily export runs at 23:30 Tehran time or when you click the button.
-- If a server already has local progress on a queued city, it resumes that city first.
-- If the hub is down, workers keep scraping their current city and upload the backlog later. Nothing is lost.
+- You define segments and their keywords there, then queue jobs: pick one or more segments and type a list of cities; each city × segment becomes one job. Each worker server claims one job, builds that city's grid for the segment, scrapes it with the segment's keywords and reports it finished. Then it claims the next job in the queue.
+- Workers report progress and upload new places in a heartbeat every 60 s. The hub keeps a merged copy of all places in `data/hub.db`, deduplicated per place and segment. Its Excel files go to `exports/hub/`: `all_leads.xlsx` with segment and city columns, one `<segment>__<city>.xlsx` per job, and a daily `leads_YYYY-MM-DD.xlsx`. The daily export runs at 23:30 Tehran time or when you click the button.
+- If a server already has local progress on a queued job, it resumes that job first.
+- If the hub is down, workers keep scraping their current job and upload the backlog later. Nothing is lost.
 - Panel actions:
+  - add, edit or delete segments (a segment with queued or active jobs can't be deleted)
   - reorder the queue
-  - **release** an active city back to the queue: the worker drops it and the next server starts that city from scratch
-  - **re-queue** a finished city, so its failed tiles are retried
+  - **release** an active job back to the queue: the worker drops it and the next server starts it from scratch
+  - **re-queue** a finished job, so its failed tiles are retried
   - pause or resume a worker
-  - revoke a worker's token: its city goes back to the queue
+  - revoke a worker's token: its job goes back to the queue
 
 Make a server the hub: `./install.sh --hub-server` (or set `hub.server: true` in `config.yaml` and restart `leadmap-dashboard`).
 
@@ -68,27 +83,27 @@ Add a worker server:
    ```
    The installer checks the connection with `python main.py hub ping` and fails loudly if it can't reach the hub. No `--city` is needed. On an existing standalone server, the same flags add just the `hub:` section to its `config.yaml`.
 
-With `hub.url` and `hub.token` set, `run` takes its cities from the hub. `run --city X` still scrapes a fixed city. CLI helpers on the hub server: `python main.py hub add-city شیراز مشهد`, `hub add-worker NAME`, `hub status`.
+With `hub.url` and `hub.token` set, `run` takes its jobs from the hub. `run --city X --segment Y` still scrapes a fixed job. CLI helpers on the hub server: `python main.py hub add-segment "میوه فروشی" "میوه فروشی" میوه "تره بار"`, `hub add-city --segment "میوه فروشی" شیراز مشهد`, `hub add-worker NAME`, `hub status`.
 
 ### CLI
 
 | command | what it does |
 |---|---|
-| `python main.py init --city "کرج"` | fetch the OSM boundary (cached) and build the snake-ordered grid; safe to re-run |
-| `python main.py test-tile [--tile ID] [--headed]` | scrape one tile (default: the most central one), print results + mobile ratio, dump raw responses to `debug/test_tile_*/` |
-| `python main.py run [--city X] [--headed]` | long-running scraper; resumes from the first pending tile |
-| `python main.py status` | tile counts, places, mobiles, backoff state, last events |
+| `python main.py init --city "کرج" [--segment S]` | fetch the OSM boundary (cached) and build the snake-ordered grid for the city and segment; safe to re-run |
+| `python main.py test-tile [--city X] [--segment S] [--tile ID] [--headed]` | scrape one tile (default: the most central one), print results + mobile ratio, dump raw responses to `debug/test_tile_*/` |
+| `python main.py run [--city X] [--segment S] [--headed]` | long-running scraper; resumes from the first pending tile |
+| `python main.py status [--city X] [--segment S]` | per city and segment: tile counts, places, mobiles; backoff state, last events |
 | `python main.py export` | run the Excel export now |
-| `python main.py retry-failed` | put failed tiles back to pending |
+| `python main.py retry-failed [--city X] [--segment S]` | put failed tiles back to pending |
 | `python main.py login` | headed browser on `data/profile` to log into Google once (only with `use_profile_login: true`) |
-| `python main.py hub add-city / add-worker / status / ping` | central panel helpers (see above) |
+| `python main.py hub add-segment / add-city / add-worker / status / ping` | central panel helpers (see above) |
 
 ### How it works
 
-- **Grid**: the city polygon comes from Nominatim (custom User-Agent, ≤1 req/s, cached in `data/cache/`). If there is no polygon it falls back to the bounding box and logs a warning. Tiles are 800 m squares in UTM, and only those intersecting the polygon are kept. They are ordered row by row, alternating direction. Tile ids are `city:row:col`, so re-running `init` never duplicates them.
-- **Extraction**: the collector opens `https://www.google.com/maps/search/<q>/@lat,lng,16z?hl=fa&gl=ir` and intercepts the `/search?tbm=map` responses. It parses them in `leadmap/parser.py`, which documents the verified field layout and is tested on real captured responses in `tests/fixtures/` (anonymized: names, phones, addresses and ids are fake). The feed's DOM cards are the fallback, merged by place id. It scrolls gradually until the end-of-list marker, or until N scrolls bring nothing new.
+- **Grid**: the city polygon comes from Nominatim (custom User-Agent, ≤1 req/s, cached in `data/cache/`). If there is no polygon it falls back to the bounding box and logs a warning. Tiles are 800 m squares in UTM, and only those intersecting the polygon are kept. They are ordered row by row, alternating direction. Tile ids are `segment/city:row:col`, so re-running `init` never duplicates them.
+- **Extraction**: for each keyword of the segment, the collector opens `https://www.google.com/maps/search/<q>/@lat,lng,16z?hl=fa&gl=ir` and intercepts the `/search?tbm=map` responses. It parses them in `leadmap/parser.py`, which documents the verified field layout and is tested on real captured responses in `tests/fixtures/` (anonymized: names, phones, addresses and ids are fake). The feed's DOM cards are the fallback, merged by place id. It scrolls gradually until the end-of-list marker, or until N scrolls bring nothing new.
 - **Detail pages**: a place with no phone in the list data gets its detail page opened once (`details_checked_at`), in a separate tab. This is subject to the hourly cap.
-- **Filter**: a place is kept if it lies inside the tile's padded bounds or inside the city polygon. Places are upserted by place id, and `last_seen` is updated.
+- **Filter**: a place is kept if it lies inside the tile's padded bounds or inside the city polygon. Places are upserted by place id and segment, and `last_seen` is updated. Google's own category is kept in the `category` column, so off-topic results of a broad keyword are easy to filter in Excel.
 - **Phones**: Persian/Arabic digits → Latin, `+98`/`0098`/`98` → `0`, `is_mobile = ^09\d{9}$`. Both the raw and normalized numbers are stored.
 - **Pacing**: 4–10 s between scroll steps, with occasional 20–60 s pauses. There is a 2–6 min pause between tiles and a 20–40 min break every 8–12 tiles. Hourly caps apply to tiles and detail opens. The active window is 08:00–01:00 Tehran time. One persistent browser session is reused and restarted every 3 h.
 - **Blocks**: a block is any of: a `/sorry/` URL, "unusual traffic" text, a reCAPTCHA iframe, HTTP 429, or 3 empty tiles in a row next to productive tiles. On a block, a screenshot and the HTML go to `debug/blocks/`, the browser closes, and the tile goes back to pending. Backoff is 3h → 6h → 12h → 24h, persisted in the DB, and resets after a successful tile. **CAPTCHAs are never solved or bypassed.**
@@ -98,7 +113,7 @@ With `hub.url` and `hub.token` set, `run` takes its cities from the hub. `run --
   - `exports/leads_YYYY-MM-DD.xlsx`: places first seen that day. The file is skipped, and a log line written, if there are none.
   - `exports/all_leads.xlsx`: cumulative, overwritten each time.
 
-  Both files have the sheets "موبایل" (mobile) and "همه" (all), RTL layout, a bold frozen header and auto widths.
+  Both files have segment and city columns, the sheets "موبایل" (mobile) and "همه" (all), RTL layout, a bold frozen header and auto widths.
   `examples/sample_leads.xlsx` shows the format: 10 rows with fake names, numbers and addresses. Real lead lists are never committed (`.gitignore`).
 - **Logs**: `logs/run.log` (rotating, 5×5 MB), with one progress line per tile. `debug/` is pruned to `debug_max_mb`.
 
@@ -160,7 +175,7 @@ leadmap/grid.py       Nominatim + tiling      leadmap/phone.py    phone normaliz
 leadmap/parser.py     response/DOM parsing    leadmap/scrape.py   one tile / query / detail page
 leadmap/pacing.py     delays, caps, window    leadmap/service.py  main loop, backoff, test-tile
 leadmap/export.py     Excel                   leadmap/db.py       SQLite (WAL)
-leadmap/hub.py        central queue + merged places (hub.html = panel)
+leadmap/hub.py        segments, job queue, merged places (hub.html = panel)
 leadmap/hubclient.py  worker side: claim / heartbeat / upload / complete
 data/leads.db  exports/  logs/  debug/  deploy/leadmap.service
 ```
@@ -174,7 +189,21 @@ data/leads.db  exports/  logs/  debug/  deploy/leadmap.service
 
 ## فارسی
 
-ابزاری آرام، قابل‌ادامه و مؤدب برای جمع‌آوری اطلاعات بنگاه‌های املاک از گوگل‌مپ. شهر را به خانه‌های کوچک (تایل) تقسیم می‌کند و در هر خانه «املاک» و «مشاور املاک» را جستجو می‌کند. نتایج در SQLite ذخیره می‌شوند و هر روز خروجی اکسل ساخته می‌شود. یک پنل مرکزی هم می‌تواند صفی از شهرها را بین چند سرور تقسیم کند.
+ابزاری آرام، قابل‌ادامه و مؤدب برای جمع‌آوری لید کسب‌وکارها از گوگل‌مپ. شهر را به خانه‌های کوچک (تایل) تقسیم می‌کند و در هر خانه کلیدواژه‌های یک **صنف** را جستجو می‌کند؛ مثلاً «میوه فروشی» ← میوه فروشی، میوه، میوه فروش، تره بار، یا «املاک» ← املاک، مشاور املاک. هر صنفی را می‌شود تعریف کرد. نتایج در SQLite ذخیره می‌شوند و هر روز خروجی اکسل ساخته می‌شود. یک پنل مرکزی هم می‌تواند صفی از کارها (شهر × صنف) را بین چند سرور تقسیم کند.
+
+### صنف‌ها
+
+هر صنف یک نام است با کلیدواژه‌هایی که در هر خانه جستجو می‌شوند. هر ترکیب (شهر، صنف) شبکه و پیشرفت جداگانه دارد. مغازه‌ای که در دو صنف پیدا شود، در هر دو لیست لید می‌آید؛ و اگر شماره‌اش در یک صنف پیدا شده باشد، برای صنف دیگر دوباره صفحه‌ی جزئیاتش باز نمی‌شود.
+- **سرور مستقل**: صنف‌ها در `config.yaml → search.segments` هستند و `search.segment` پیش‌فرض است. با `init`، `run`، `test-tile` و `status` از `--segment` استفاده کنید.
+- **با پنل مرکزی**: صنف‌ها در خود پنل (بخش «صنف‌ها») مدیریت می‌شوند. اگر کلیدواژه‌ها را آنجا ویرایش کنید، سرورهای در حال کار در heartbeat بعدی تغییر را می‌گیرند.
+
+```yaml
+search:
+  segments:
+    املاک: ["املاک", "مشاور املاک"]
+    میوه فروشی: ["میوه فروشی", "میوه", "میوه فروش", "تره بار"]
+  segment: املاک
+```
 
 ### نصب روی سرور جدید (با یک دستور)
 
@@ -189,6 +218,8 @@ cd /root && tar xzf leadmap-*.tgz && cd leadmap
 ./install.sh                                   # شهر و ایمیل را می‌پرسد
 # یا بدون سؤال:
 ./install.sh --yes --city "شیراز" --contact you@gmail.com
+# صنف دیگر (به config.yaml اضافه و پیش‌فرض می‌شود):
+./install.sh --yes --city "شیراز" --segment "میوه فروشی" --keywords "میوه فروشی,میوه,میوه فروش,تره بار" --contact you@gmail.com
 # با گواهی دامنه‌ی واقعی برای داشبورد:
 ./install.sh --city "شیراز" --contact you@gmail.com --domain my.domain.com \
              --cert /path/fullchain.pem --key /path/privkey.pem
@@ -198,28 +229,29 @@ cd /root && tar xzf leadmap-*.tgz && cd leadmap
 - بسته‌های سیستمی و پایتون ۳.۱۱ به بالا را نصب می‌کند (روی توزیع‌های قدیمی‌تر مثل اوبونتو ۲۲.۰۴ از طریق uv)
 - `requirements.txt` و Chromium را نصب می‌کند و تست‌ها را اجرا می‌کند
 - `config.yaml` را با یک رمز تصادفی برای داشبورد می‌سازد
-- شبکه‌ی خانه‌های شهر را می‌سازد
+- شبکه‌ی خانه‌های شهر را برای آن صنف می‌سازد
 - هر دو سرویس systemd را نصب و اجرا می‌کند
 
 در پایان آدرس داشبورد و نام کاربری و رمز را چاپ می‌کند. بدون `--cert` یک گواهی self-signed ساخته می‌شود و مرورگر یک بار هشدار می‌دهد. اجرای دوباره‌ی نصب‌کننده بی‌خطر است: تنظیمات، دیتابیس و پروفایل حفظ می‌شوند و `--reconfigure` تنظیمات را از نو می‌نویسد. همه‌ی گزینه‌ها: `./install.sh --help`.
 
-**برای `--contact` ایمیل واقعی بدهید.** OpenStreetMap به ایمیل‌های ساختگی خطای 403 می‌دهد. **هر شهر را فقط روی یک سرور اجرا کنید.** برای تقسیم خودکار شهرها بین سرورها از پنل مرکزی استفاده کنید (پایین‌تر).
+**برای `--contact` ایمیل واقعی بدهید.** OpenStreetMap به ایمیل‌های ساختگی خطای 403 می‌دهد. **هر ترکیب شهر و صنف را فقط روی یک سرور اجرا کنید.** برای تقسیم خودکار کار بین سرورها از پنل مرکزی استفاده کنید (پایین‌تر).
 
 همه‌ی تنظیمات در `config.yaml` است: مسیرها، شبکه، عبارت‌های جستجو، سرعت، بلاک و backoff، تلاش مجدد و ساعت خروجی.
 
-### پنل مرکزی: چند سرور، یک صف شهر
+### پنل مرکزی: چند سرور، یک صف کار
 
 یکی از سرورها **هاب** را اجرا می‌کند؛ صفحه‌ای در `https://<آدرس داشبورد>:8880/hub` با همان نام کاربری و رمز داشبورد. روش کار:
-- شهرها را در پنل به صف اضافه می‌کنید. هر سرور یک شهر برمی‌دارد، شبکه‌اش را می‌سازد، جمع‌آوری می‌کند و تمام‌شدنش را گزارش می‌دهد. بعد شهر بعدی صف را برمی‌دارد.
-- سرورها هر ۶۰ ثانیه پیشرفت کار و مکان‌های جدید را می‌فرستند. هاب نسخه‌ی ادغام‌شده‌ی همه‌ی مکان‌ها را، بدون تکراری، در `data/hub.db` نگه می‌دارد. فایل‌های اکسلش در `exports/hub/` است: `all_leads.xlsx` با ستون شهر، یک `city_<نام>.xlsx` برای هر شهر، و فایل روزانه‌ی `leads_YYYY-MM-DD.xlsx`. خروجی روزانه ساعت ۲۳:۳۰ به وقت تهران یا با زدن دکمه ساخته می‌شود.
-- اگر سروری از قبل روی شهری از صف پیشرفت داشته باشد، اول همان را ادامه می‌دهد.
-- اگر هاب در دسترس نباشد، سرورها کار شهر فعلی را ادامه می‌دهند و داده‌ها را بعداً می‌فرستند. چیزی از دست نمی‌رود.
+- در پنل صنف‌ها و کلیدواژه‌هایشان را تعریف می‌کنید، بعد کار به صف اضافه می‌کنید: یک یا چند صنف را انتخاب می‌کنید و لیست شهرها را می‌نویسید؛ هر «شهر × صنف» یک کار می‌شود. هر سرور یک کار برمی‌دارد، شبکه‌ی آن شهر را برای آن صنف می‌سازد، با کلیدواژه‌های صنف جمع‌آوری می‌کند و تمام‌شدنش را گزارش می‌دهد. بعد کار بعدی صف را برمی‌دارد.
+- سرورها هر ۶۰ ثانیه پیشرفت کار و مکان‌های جدید را می‌فرستند. هاب نسخه‌ی ادغام‌شده‌ی همه‌ی مکان‌ها را، بدون تکراری در هر صنف، در `data/hub.db` نگه می‌دارد. فایل‌های اکسلش در `exports/hub/` است: `all_leads.xlsx` با ستون‌های صنف و شهر، یک `<صنف>__<شهر>.xlsx` برای هر کار، و فایل روزانه‌ی `leads_YYYY-MM-DD.xlsx`. خروجی روزانه ساعت ۲۳:۳۰ به وقت تهران یا با زدن دکمه ساخته می‌شود.
+- اگر سروری از قبل روی کاری از صف پیشرفت داشته باشد، اول همان را ادامه می‌دهد.
+- اگر هاب در دسترس نباشد، سرورها کار فعلی را ادامه می‌دهند و داده‌ها را بعداً می‌فرستند. چیزی از دست نمی‌رود.
 - کارهایی که از پنل می‌شود کرد:
+  - افزودن، ویرایش یا حذف صنف (صنفی که کار در صف یا در حال انجام دارد حذف نمی‌شود)
   - تغییر ترتیب صف
-  - **برگرداندن** شهر فعال به صف: سرور آن را رها می‌کند و سرور بعدی شهر را از اول شروع می‌کند
-  - **صف دوباره** برای شهر تمام‌شده، تا خانه‌های ناموفقش دوباره امتحان شوند
+  - **برگرداندن** کار فعال به صف: سرور آن را رها می‌کند و سرور بعدی از اول شروعش می‌کند
+  - **صف دوباره** برای کار تمام‌شده، تا خانه‌های ناموفقش دوباره امتحان شوند
   - توقف یا ادامه‌ی کار یک سرور
-  - باطل کردن توکن یک سرور: شهرش به صف برمی‌گردد
+  - باطل کردن توکن یک سرور: کارش به صف برمی‌گردد
 
 هاب کردن یک سرور: `./install.sh --hub-server` (یا در `config.yaml` مقدار `hub.server: true` را بگذارید و `leadmap-dashboard` را ری‌استارت کنید).
 
@@ -232,27 +264,27 @@ cd /root && tar xzf leadmap-*.tgz && cd leadmap
    ```
    نصب‌کننده اتصال را با `python main.py hub ping` بررسی می‌کند و اگر به هاب وصل نشود با خطا متوقف می‌شود. `--city` لازم نیست. روی سروری که قبلاً مستقل نصب شده، همین گزینه‌ها فقط بخش `hub:` را به `config.yaml` اضافه می‌کنند.
 
-وقتی `hub.url` و `hub.token` تنظیم باشند، دستور `run` شهرها را از هاب می‌گیرد. `run --city X` همچنان یک شهر ثابت را جمع‌آوری می‌کند. دستورهای کمکی روی سرور هاب: `python main.py hub add-city شیراز مشهد`، `hub add-worker NAME`، `hub status`.
+وقتی `hub.url` و `hub.token` تنظیم باشند، دستور `run` کارها را از هاب می‌گیرد. `run --city X --segment Y` همچنان یک کار ثابت را جمع‌آوری می‌کند. دستورهای کمکی روی سرور هاب: `python main.py hub add-segment "میوه فروشی" "میوه فروشی" میوه "تره بار"`، `hub add-city --segment "میوه فروشی" شیراز مشهد`، `hub add-worker NAME`، `hub status`.
 
 ### دستورها
 
 | دستور | کار |
 |---|---|
-| `python main.py init --city "کرج"` | مرز شهر را از OSM می‌گیرد (با کش) و شبکه‌ی مارپیچ را می‌سازد؛ اجرای دوباره بی‌خطر است |
-| `python main.py test-tile [--tile ID] [--headed]` | فقط یک خانه را جمع‌آوری می‌کند (پیش‌فرض: مرکزی‌ترین)، نتایج و درصد موبایل را چاپ می‌کند و پاسخ‌های خام را در `debug/test_tile_*/` ذخیره می‌کند |
-| `python main.py run [--city X] [--headed]` | اجرای طولانی‌مدت؛ از اولین خانه‌ی باقی‌مانده ادامه می‌دهد |
-| `python main.py status` | تعداد خانه‌ها، مکان‌ها، موبایل‌ها، وضعیت backoff و آخرین رویدادها |
+| `python main.py init --city "کرج" [--segment S]` | مرز شهر را از OSM می‌گیرد (با کش) و شبکه‌ی مارپیچ را برای آن شهر و صنف می‌سازد؛ اجرای دوباره بی‌خطر است |
+| `python main.py test-tile [--city X] [--segment S] [--tile ID] [--headed]` | فقط یک خانه را جمع‌آوری می‌کند (پیش‌فرض: مرکزی‌ترین)، نتایج و درصد موبایل را چاپ می‌کند و پاسخ‌های خام را در `debug/test_tile_*/` ذخیره می‌کند |
+| `python main.py run [--city X] [--segment S] [--headed]` | اجرای طولانی‌مدت؛ از اولین خانه‌ی باقی‌مانده ادامه می‌دهد |
+| `python main.py status [--city X] [--segment S]` | برای هر شهر و صنف: تعداد خانه‌ها، مکان‌ها و موبایل‌ها؛ وضعیت backoff و آخرین رویدادها |
 | `python main.py export` | همین الان خروجی اکسل می‌سازد |
-| `python main.py retry-failed` | خانه‌های ناموفق را به صف برمی‌گرداند |
+| `python main.py retry-failed [--city X] [--segment S]` | خانه‌های ناموفق را به صف برمی‌گرداند |
 | `python main.py login` | مرورگر قابل‌مشاهده روی `data/profile` برای یک بار ورود به گوگل (فقط با `use_profile_login: true`) |
-| `python main.py hub add-city / add-worker / status / ping` | دستورهای پنل مرکزی (بالا را ببینید) |
+| `python main.py hub add-segment / add-city / add-worker / status / ping` | دستورهای پنل مرکزی (بالا را ببینید) |
 
 ### نحوه‌ی کار
 
-- **شبکه**: مرز شهر از Nominatim گرفته می‌شود (با User-Agent اختصاصی، حداکثر یک درخواست در ثانیه، کش در `data/cache/`). اگر مرز چندضلعی نباشد، از مستطیل محدوده استفاده می‌شود و هشدار ثبت می‌شود. خانه‌ها مربع‌های ۸۰۰ متری در UTM هستند و فقط آن‌هایی که با شهر تلاقی دارند نگه داشته می‌شوند. ترتیبشان ردیف‌به‌ردیف و مارپیچ است. شناسه‌ی خانه `شهر:ردیف:ستون` است، پس اجرای دوباره‌ی `init` خانه‌ی تکراری نمی‌سازد.
-- **استخراج**: برنامه آدرس `https://www.google.com/maps/search/<q>/@lat,lng,16z?hl=fa&gl=ir` را باز می‌کند و پاسخ‌های `/search?tbm=map` را می‌گیرد. این پاسخ‌ها در `leadmap/parser.py` تجزیه می‌شوند. ساختار فیلدها در همان فایل مستند شده و روی پاسخ‌های واقعی ذخیره‌شده در `tests/fixtures/` تست شده است (ناشناس‌شده: نام، تلفن، آدرس و شناسه‌ها ساختگی‌اند). کارت‌های صفحه (DOM) پشتیبان هستند و بر اساس place id ادغام می‌شوند. صفحه آرام‌آرام اسکرول می‌شود تا به انتهای لیست برسد یا N اسکرول پشت‌سرهم چیز جدیدی نیاورد.
+- **شبکه**: مرز شهر از Nominatim گرفته می‌شود (با User-Agent اختصاصی، حداکثر یک درخواست در ثانیه، کش در `data/cache/`). اگر مرز چندضلعی نباشد، از مستطیل محدوده استفاده می‌شود و هشدار ثبت می‌شود. خانه‌ها مربع‌های ۸۰۰ متری در UTM هستند و فقط آن‌هایی که با شهر تلاقی دارند نگه داشته می‌شوند. ترتیبشان ردیف‌به‌ردیف و مارپیچ است. شناسه‌ی خانه `صنف/شهر:ردیف:ستون` است، پس اجرای دوباره‌ی `init` خانه‌ی تکراری نمی‌سازد.
+- **استخراج**: برای هر کلیدواژه‌ی صنف، برنامه آدرس `https://www.google.com/maps/search/<q>/@lat,lng,16z?hl=fa&gl=ir` را باز می‌کند و پاسخ‌های `/search?tbm=map` را می‌گیرد. این پاسخ‌ها در `leadmap/parser.py` تجزیه می‌شوند. ساختار فیلدها در همان فایل مستند شده و روی پاسخ‌های واقعی ذخیره‌شده در `tests/fixtures/` تست شده است (ناشناس‌شده: نام، تلفن، آدرس و شناسه‌ها ساختگی‌اند). کارت‌های صفحه (DOM) پشتیبان هستند و بر اساس place id ادغام می‌شوند. صفحه آرام‌آرام اسکرول می‌شود تا به انتهای لیست برسد یا N اسکرول پشت‌سرهم چیز جدیدی نیاورد.
 - **صفحه‌ی جزئیات**: اگر مکانی در لیست تلفن نداشته باشد، صفحه‌ی جزئیاتش یک بار در تب جدا باز می‌شود (`details_checked_at`). این کار سقف ساعتی دارد.
-- **فیلتر**: مکانی نگه داشته می‌شود که داخل محدوده‌ی خانه (با کمی حاشیه) یا داخل مرز شهر باشد. مکان‌ها بر اساس place id ثبت یا به‌روز می‌شوند و `last_seen` تازه می‌شود.
+- **فیلتر**: مکانی نگه داشته می‌شود که داخل محدوده‌ی خانه (با کمی حاشیه) یا داخل مرز شهر باشد. مکان‌ها بر اساس place id و صنف ثبت یا به‌روز می‌شوند و `last_seen` تازه می‌شود. دسته‌بندی خود گوگل در ستون `category` می‌ماند، پس نتایج نامربوطِ یک کلیدواژه‌ی کلی را راحت می‌شود در اکسل فیلتر کرد.
 - **تلفن**: ارقام فارسی و عربی به لاتین تبدیل می‌شوند، `+98`، `0098` و `98` به `0`، و `is_mobile = ^09\d{9}$`. هم شماره‌ی خام و هم شماره‌ی یکدست‌شده ذخیره می‌شود.
 - **سرعت**: ۴ تا ۱۰ ثانیه بین هر اسکرول، گاهی مکث ۲۰ تا ۶۰ ثانیه‌ای. بین خانه‌ها ۲ تا ۶ دقیقه مکث و هر ۸ تا ۱۲ خانه ۲۰ تا ۴۰ دقیقه استراحت. برای خانه‌ها و صفحه‌های جزئیات سقف ساعتی هست. ساعت کاری ۸ صبح تا ۱ بامداد به وقت تهران است. یک نشست مرورگر ثابت استفاده و هر ۳ ساعت ری‌استارت می‌شود.
 - **بلاک**: هر کدام از این‌ها بلاک حساب می‌شود: آدرس `/sorry/`، متن «unusual traffic»، کادر reCAPTCHA، خطای HTTP 429، یا ۳ خانه‌ی خالی پشت‌سرهم کنار خانه‌های پرنتیجه. در صورت بلاک، اسکرین‌شات و HTML در `debug/blocks/` ذخیره می‌شود، مرورگر بسته می‌شود و خانه به صف برمی‌گردد. زمان انتظار ۳ ← ۶ ← ۱۲ ← ۲۴ ساعت است، در دیتابیس ذخیره می‌شود و بعد از یک خانه‌ی موفق صفر می‌شود. **کپچا هرگز حل یا دور زده نمی‌شود.**
@@ -262,7 +294,7 @@ cd /root && tar xzf leadmap-*.tgz && cd leadmap
   - `exports/leads_YYYY-MM-DD.xlsx`: مکان‌هایی که آن روز برای اولین بار دیده شده‌اند. اگر چیزی نباشد، فایل ساخته نمی‌شود و فقط در لاگ ثبت می‌شود.
   - `exports/all_leads.xlsx`: همه‌ی مکان‌ها، هر بار بازنویسی می‌شود.
 
-  هر دو فایل برگه‌های «موبایل» و «همه» دارند، راست‌به‌چپ، با سرستون ثابت و پررنگ و عرض ستون خودکار.
+  هر دو فایل ستون‌های صنف و شهر و برگه‌های «موبایل» و «همه» دارند، راست‌به‌چپ، با سرستون ثابت و پررنگ و عرض ستون خودکار.
   `examples/sample_leads.xlsx` قالب خروجی را نشان می‌دهد: ۱۰ ردیف با نام، شماره و آدرس ساختگی. لیست‌های لید واقعی هرگز در گیت قرار نمی‌گیرند (`.gitignore`).
 - **لاگ**: `logs/run.log` (چرخشی، ۵ فایل ۵ مگابایتی) با یک خط پیشرفت برای هر خانه. پوشه‌ی `debug/` تا سقف `debug_max_mb` پاک‌سازی می‌شود.
 
@@ -324,7 +356,7 @@ leadmap/grid.py       Nominatim و تقسیم به خانه    leadmap/phone.py 
 leadmap/parser.py     تجزیه‌ی پاسخ و صفحه         leadmap/scrape.py   یک خانه / جستجو / صفحه‌ی جزئیات
 leadmap/pacing.py     مکث‌ها، سقف‌ها، ساعت کاری    leadmap/service.py  حلقه‌ی اصلی، backoff، test-tile
 leadmap/export.py     اکسل                         leadmap/db.py       SQLite (WAL)
-leadmap/hub.py        صف مرکزی و ادغام مکان‌ها (hub.html = صفحه‌ی پنل)
+leadmap/hub.py        صنف‌ها، صف کارها و ادغام مکان‌ها (hub.html = صفحه‌ی پنل)
 leadmap/hubclient.py  سمت سرور کارگر: گرفتن شهر / گزارش / ارسال / پایان
 data/leads.db  exports/  logs/  debug/  deploy/leadmap.service
 ```
