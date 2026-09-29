@@ -266,7 +266,7 @@ function render(d) {
   for (const w of d.workers) {
     const r = w.report || {};
     const st = w.paused ? ['متوقف', 'warn'] : w.online ? ['آنلاین', 'ok'] : ['آفلاین', 'bad'];
-    let now = PHASE[r.phase] || r.phase || '-';
+    let now = esc(PHASE[r.phase] || r.phase || '-');
     if (r.tile) now += ` <bdi class="muted">${esc(r.tile)}</bdi>`;
     if (r.backoff && r.backoff.startsWith('ACTIVE')) now += `<div class="err">${esc(r.backoff)}</div>`;
     if (r.sync_backlog) now += `<div class="muted">${fa(r.sync_backlog)} مکان در انتظار ارسال</div>`;

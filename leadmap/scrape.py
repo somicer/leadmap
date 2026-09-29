@@ -1,6 +1,7 @@
 """Scraping one tile: search each query, scroll the feed, collect places, open detail pages."""
 import logging
 import random
+import re
 import time
 import urllib.parse
 from datetime import datetime
@@ -315,7 +316,8 @@ def _phone_from_page(page) -> str | None:
 
 
 def _slug(s: str) -> str:
-    return "_".join(s.split())
+    """Safe file-name part: keywords come from config or the hub and may contain / or .."""
+    return re.sub(r"[^\w\-]+", "_", s).strip("_")[:60] or "q"
 
 
 __all__ = ["TileScraper", "BlockDetected", "TransientError", "Stopped"]

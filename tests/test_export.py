@@ -28,3 +28,20 @@ def test_export(tmp_path):
     # a day with nothing new: daily file skipped, cumulative still written
     export_all(cfg, db, date(2019, 1, 1))
     assert not (tmp_path / "leads_2019-01-01.xlsx").exists()
+
+
+def test_formulas_stay_text(tmp_path):
+    db = DB(tmp_path / "t.db")
+    db.upsert_place({"place_id": "x", "name": '=HYPERLINK("http://evil","click")', "phone": "09121234567",
+                     "is_mobile": True})
+    cfg = type("C", (dict,), {"path": lambda self, k: tmp_path})({"pacing": {"timezone": "Asia/Tehran"}})
+    export_all(cfg, db)
+    ws = openpyxl.load_workbook(tmp_path / "all_leads.xlsx")["همه"]
+    cell = ws.cell(row=2, column=3)
+    assert cell.value.startswith("=HYPERLINK") and cell.data_type == "s"
+
+
+def test_slug_is_path_safe():
+    from leadmap.scrape import _slug
+    assert _slug("../../etc/passwd") == "etc_passwd"
+    assert _slug("میوه فروشی") == "میوه_فروشی"

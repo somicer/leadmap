@@ -35,6 +35,10 @@ def _write(df: pd.DataFrame, path, columns=COLUMNS):
             ws.freeze_panes = "A2"
             for cell in ws[1]:
                 cell.font = Font(bold=True)
+            for row in ws.iter_rows(min_row=2):  # a name like "=HYPERLINK(...)" must stay text, not a formula
+                for cell in row:
+                    if cell.data_type == "f":
+                        cell.data_type = "s"
             for i, col in enumerate(columns, 1):
                 values = [str(col)] + [str(v) for v in part[col].tolist() if v is not None]
                 width = min(max((len(v) for v in values), default=8) + 2, 70)
