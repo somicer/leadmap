@@ -299,7 +299,7 @@ def _phone_from_page(page) -> str | None:
         return None
     item = btn.get_attribute("data-item-id") or ""
     label = btn.get_attribute("aria-label") or ""
-    # aria-label is "تلفن: 026 3441 8548" (local format); data-item-id is "phone:tel:+98…"
+    # aria-label is "تلفن: 026 1234 5678" (local format); data-item-id is "phone:tel:+98…"
     local = label.split(":", 1)[-1].strip() if ":" in label else ""
     return local or item.removeprefix("phone:tel:") or None
 

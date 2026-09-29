@@ -89,6 +89,7 @@ With `hub.url` and `hub.token` set, `run` takes its cities from the hub. `run --
   - `exports/all_leads.xlsx`: cumulative, overwritten each time.
 
   Both files have the sheets "موبایل" and "همه", RTL layout, a bold frozen header and auto widths.
+  `examples/sample_leads.xlsx` shows the format: 10 rows with fake names, numbers and addresses. Real lead lists are never committed (`.gitignore`).
 - **Logs**: `logs/run.log` (rotating, 5×5 MB), with one progress line per tile. `debug/` is pruned to `debug_max_mb`.
 
 ## Running as a service (systemd)

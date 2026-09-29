@@ -11,3 +11,11 @@ doc.txt
 .venv/
 __pycache__/
 .pytest_cache/
+
+# lead lists never go to git (only the anonymized sample below)
+*.xlsx
+*.xls
+*.csv
+*.db
+*.db-*
+!examples/sample_leads.xlsx
